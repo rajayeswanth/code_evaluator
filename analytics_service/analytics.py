@@ -11,6 +11,7 @@ from typing import Dict, Any, List
 from evaluation.models import Student, Evaluation, EvaluationSession, LabRubric
 from analytics_service.models import StudentPerformance, LabAnalytics
 from evaluator_service.openai_service import openai_service
+from cache_utils import cache_api_response, cache_db_query, cache_llm_response
 
 
 class AnalyticsService:
@@ -325,6 +326,7 @@ Respond with only the concept-based common issues.
         except Student.DoesNotExist:
             return {"error": "Student not found"}
 
+    @cache_llm_response(cache_alias="llm_cache", timeout=3600)
     def _analyze_student_trend(self, student_id: str, sessions) -> str:
         """Use nano model to analyze student's performance trend by programming concepts"""
         try:
@@ -534,6 +536,7 @@ Respond with only the concept-based analysis.
         except Exception as e:
             return {"error": f"Failed to analyze semester performance: {str(e)}"}
 
+    @cache_llm_response(cache_alias="llm_cache", timeout=3600)
     def _get_performance_summary_with_limit(self, sessions, context: str) -> str:
         """Get performance summary with token limit check (400 tokens total)"""
         try:

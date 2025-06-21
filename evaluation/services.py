@@ -1,26 +1,27 @@
 import uuid
 import time
 import traceback
+import logging
 from typing import Dict, Any, List, Optional
 from django.db import transaction, models
 from django.utils import timezone
 
 from .models import (
-    Rubric, Student, Evaluation, LLMResponse, 
-    EvaluationSession, SystemMetrics, ErrorLog
+    LabRubric, Student, Evaluation, EvaluationSession, SystemMetrics, ErrorLog
 )
 from .validators import InputValidator, ValidationError
-from data.file_processor import FileProcessor
-from evaluators.code_evaluator import CodeEvaluator
-from services.openai_service import openai_service
-from utils.logger import logger
+from data_service.file_processor import FileProcessor
+from evaluator_service.code_evaluator import CodeEvaluator
+from evaluator_service.openai_service import openai_service
+
+logger = logging.getLogger(__name__)
 
 
 class RubricService:
     """Service for managing rubrics with strict validation."""
     
     @staticmethod
-    def create_rubric(data: Dict[str, Any]) -> Rubric:
+    def create_rubric(data: Dict[str, Any]) -> LabRubric:
         """Create a new rubric with validation."""
         logger.info(f"Creating rubric: {data.get('filename', 'unknown')}")
         
@@ -35,7 +36,7 @@ class RubricService:
                 raise ValidationError(errors, 'rubric_data')
             
             with transaction.atomic():
-                rubric = Rubric.objects.create(
+                rubric = LabRubric.objects.create(
                     name=sanitized_data['name'],
                     filename=sanitized_data['filename'],
                     total_points=sanitized_data['total_points'],
@@ -52,12 +53,12 @@ class RubricService:
             raise
     
     @staticmethod
-    def get_rubric_by_filename(filename: str) -> Optional[Rubric]:
+    def get_rubric_by_filename(filename: str) -> Optional[LabRubric]:
         """Get rubric by filename with logging."""
         logger.debug(f"Looking up rubric for filename: {filename}")
         
         try:
-            rubric = Rubric.objects.filter(filename=filename, is_active=True).first()
+            rubric = LabRubric.objects.filter(filename=filename, is_active=True).first()
             if rubric:
                 logger.debug(f"Found rubric: {rubric.filename} (ID: {rubric.id})")
             else:
@@ -69,12 +70,12 @@ class RubricService:
             return None
     
     @staticmethod
-    def get_all_rubrics() -> List[Rubric]:
+    def get_all_rubrics() -> List[LabRubric]:
         """Get all active rubrics with logging."""
         logger.debug("Fetching all active rubrics")
         
         try:
-            rubrics = list(Rubric.objects.filter(is_active=True).order_by('filename'))
+            rubrics = list(LabRubric.objects.filter(is_active=True).order_by('filename'))
             logger.info(f"Retrieved {len(rubrics)} active rubrics")
             return rubrics
             
@@ -83,7 +84,7 @@ class RubricService:
             return []
     
     @staticmethod
-    def update_rubric(rubric_id: int, data: Dict[str, Any]) -> Optional[Rubric]:
+    def update_rubric(rubric_id: int, data: Dict[str, Any]) -> Optional[LabRubric]:
         """Update an existing rubric with validation."""
         logger.info(f"Updating rubric ID: {rubric_id}")
         
@@ -105,7 +106,7 @@ class RubricService:
                     raise ValidationError(errors, 'rubric_update')
             
             with transaction.atomic():
-                rubric = Rubric.objects.get(id=rubric_id)
+                rubric = LabRubric.objects.get(id=rubric_id)
                 for key, value in sanitized_data.items():
                     if hasattr(rubric, key):
                         setattr(rubric, key, value)
@@ -113,7 +114,7 @@ class RubricService:
                 logger.info(f"Successfully updated rubric: {rubric.filename} (ID: {rubric.id})")
                 return rubric
                 
-        except Rubric.DoesNotExist:
+        except LabRubric.DoesNotExist:
             logger.warning(f"Rubric {rubric_id} not found")
             return None
         except ValidationError:

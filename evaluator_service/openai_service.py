@@ -1,296 +1,189 @@
 """
-OpenAI service for handling LLM interactions.
-Provides centralized OpenAI API communication with proper error handling.
+OpenAI service for code evaluation using GPT-4.1-nano model.
+Optimized for consistent, concise feedback with token management.
 """
 
+import os
 import json
-from typing import Dict, Any, Optional
+import logging
+from typing import Dict, Any, List, Optional
 from openai import OpenAI
-from openai.types.chat import ChatCompletion
+from django.conf import settings
+from cache_utils import cache_llm_response
 
-from config import Config
-
+logger = logging.getLogger(__name__)
 
 class OpenAIService:
-    """Service class for OpenAI API interactions."""
-
+    """OpenAI service for code evaluation"""
+    
     def __init__(self):
-        """Initialize OpenAI client."""
-        self.client = OpenAI(api_key=Config.OPENAI_API_KEY)
-
-    def create_chat_completion(
-        self,
-        messages: list,
-        model: Optional[str] = None,
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Create a chat completion with the OpenAI API.
-
-        Args:
-            messages: List of message dictionaries
-            model: Model to use (defaults to config)
-            max_tokens: Maximum tokens (defaults to config)
-            temperature: Temperature setting (defaults to config)
-
-        Returns:
-            Dictionary with response content and token usage or None if error
-        """
+        self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        self.model = "gpt-4o-mini"  # Using gpt-4o-mini as nano equivalent
+        self.max_tokens = 500
+        self.temperature = 0.1
+        
+    @cache_llm_response(cache_alias="llm_cache", timeout=3600)
+    def create_chat_completion(self, messages: List[Dict[str, str]]) -> Optional[str]:
+        """Create chat completion with caching"""
         try:
-            # Use config defaults if not provided
-            model = model or Config.OPENAI_MODEL
-            max_tokens = max_tokens or Config.OPENAI_MAX_TOKENS
-            temperature = temperature or Config.OPENAI_TEMPERATURE
-
-            completion: ChatCompletion = self.client.chat.completions.create(
-                model=model,
+            response = self.client.chat.completions.create(
+                model=self.model,
                 messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature
             )
-
-            response_content = completion.choices[0].message.content
             
-            # Extract token usage
-            usage = completion.usage
-            token_info = {
-                'content': response_content,
-                'input_tokens': usage.prompt_tokens if usage else 0,
-                'output_tokens': usage.completion_tokens if usage else 0,
-                'total_tokens': usage.total_tokens if usage else 0
-            }
+            if response.choices and response.choices[0].message:
+                return response.choices[0].message.content.strip()
             
-            return token_info
-
-        except Exception as e:
             return None
-
-    def evaluate_code(
-        self,
-        filename: str,
-        code: str,
-        rubric: Dict[str, Any],
-        evaluation_type: str = "initial",
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Evaluate code using LLM with enhanced prompts for edge cases.
-
-        Args:
-            filename: Name of the file being evaluated
-            code: Code content to evaluate
-            rubric: Evaluation rubric
-            evaluation_type: Type of evaluation ("initial" or "double_check")
-
-        Returns:
-            Evaluation result dictionary with token usage or None if error
-        """
-        try:
-            # Validate inputs
-            if not code or not code.strip():
-                return self._create_error_response(
-                    "EMPTY_CODE", "No code content provided"
-                )
-
-            if not isinstance(rubric, dict):
-                return self._create_error_response(
-                    "INVALID_RUBRIC", "Invalid rubric format"
-                )
-
-            system_message = self._get_system_message(evaluation_type)
-            user_message = self._build_enhanced_evaluation_prompt(
-                filename, code, rubric, evaluation_type
-            )
-
-            messages = [
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": user_message},
-            ]
-
-            response = self.create_chat_completion(messages)
-
-            if not response:
-                return self._create_error_response(
-                    "API_ERROR", "Failed to get evaluation from LLM"
-                )
-
-            # Parse response
-            result = self._parse_evaluation_response(response['content'], filename)
             
-            # Add token usage to result
-            result['input_tokens'] = response['input_tokens']
-            result['output_tokens'] = response['output_tokens']
-            result['total_tokens'] = response['total_tokens']
-            
-            return result
-
         except Exception as e:
-            return self._create_error_response("EVALUATION_ERROR", str(e))
-
-    def _get_system_message(self, evaluation_type: str) -> str:
-        """Get appropriate system message based on evaluation type."""
-        if evaluation_type == "initial":
-            return """You are a coding instructor evaluating student code. Follow these STRICT rules:
-
-EVALUATION RULES:
-- ONLY evaluate against the provided rubric criteria
-- NO deductions for extra code not in rubric
-- NO deductions for missing input validation
-- Give PARTIAL credit if student attempted but didn't complete correctly
-- Give PARTIAL credit if student tried but didn't meet rubric exactly
-- If failure is due to previously deducted rubric, DO NOT deduct again
-- Be LENIENT - students are learning
-- Output SHORT, CONCISE feedback - only what's wrong, no explanations
-
-FORMAT RULES:
-- Perfect code: "correct"
-- Issues: "1. [SHORT issue] --> -[points] points"
-- Use EXACT format: "Missing array implementation --> -2 points"
-- Calculate total points_lost correctly
-- Always respond with valid JSON"""
-        else:
-            return """You are reviewing grading for consistency. Follow these STRICT rules:
-
-EVALUATION RULES:
-- ONLY evaluate against the provided rubric criteria
-- NO deductions for extra code not in rubric
-- NO deductions for missing input validation
-- Give PARTIAL credit if student attempted but didn't complete correctly
-- Give PARTIAL credit if student tried but didn't meet rubric exactly
-- If failure is due to previously deducted rubric, DO NOT deduct again
-- Be LENIENT - students are learning
-- Output SHORT, CONCISE feedback - only what's wrong, no explanations
-
-FORMAT RULES:
-- Perfect code: "correct"
-- Issues: "1. [SHORT issue] --> -[points] points"
-- Use EXACT format: "Missing array implementation --> -2 points"
-- Calculate total points_lost correctly
-- Always respond with valid JSON"""
-
-    def _build_enhanced_evaluation_prompt(
-        self, filename: str, code: str, rubric: Dict[str, Any], evaluation_type: str
-    ) -> str:
-        """
-        Build enhanced evaluation prompt with strict, specific format in JSON.
-        """
-        base_prompt = f"""
-Evaluate this code against the provided rubric. Output ONLY valid JSON with this EXACT format:
-
-If perfect: {{"feedback": "correct", "points_lost": 0}}
-
-If issues: {{"feedback": "1. [SHORT issue] --> -[points] points\\n2. [SHORT issue] --> -[points] points", "points_lost": [total_points_lost]}}
-
-CRITICAL RULES:
-- ONLY evaluate rubric criteria - ignore extra code
-- NO deductions for missing input validation
-- Give PARTIAL credit for attempts (if they tried but didn't complete correctly)
-- Give PARTIAL credit if they tried but didn't meet rubric exactly
-- If failure is due to previously deducted rubric, DO NOT deduct again
-- Be LENIENT - students are learning
-- Use EXACT format: "Missing array implementation --> -2 points"
-- SHORT and CONCISE - only what's wrong, no explanations
-
-Code file: {filename}
-Code:
-{code}
-
-Rubric:
-{json.dumps(rubric, indent=2)}
-
-Output ONLY the JSON response, nothing else.
-"""
-        return base_prompt
-
-    def _parse_evaluation_response(
-        self, response: str, filename: str
-    ) -> Dict[str, Any]:
-        """
-        Parse evaluation response and extract feedback.
-
-        Args:
-            response: Raw response from LLM
-            filename: Name of the file being evaluated
-
-        Returns:
-            Parsed evaluation result
-        """
+            logger.error(f"OpenAI API error: {str(e)}")
+            return None
+    
+    def evaluate_code_with_rubric(self, code_content: str, rubric_criteria: Dict[str, Any], filename: str) -> Dict[str, Any]:
+        """Evaluate code using specific rubric criteria with caching"""
         try:
-            # Clean response
-            response = response.strip()
+            # Create evaluation prompt
+            prompt = self._create_evaluation_prompt(code_content, rubric_criteria, filename)
             
-            # Try to parse as JSON
-            try:
-                parsed = json.loads(response)
-                feedback = parsed.get("feedback", "")
-                points_lost = parsed.get("points_lost", 0)
-                
-                # Ensure points_lost is an integer
-                if isinstance(points_lost, str):
-                    try:
-                        points_lost = int(points_lost)
-                    except ValueError:
-                        points_lost = 0
-                elif not isinstance(points_lost, (int, float)):
-                    points_lost = 0
-                    
-            except json.JSONDecodeError:
-                # If not valid JSON, treat as plain text
-                feedback = response
-                points_lost = 0
-
+            # Get cached or fresh response
+            response = self.create_chat_completion([
+                {"role": "system", "content": "You are a strict code evaluator. Follow rubrics exactly. Give concise, actionable feedback."},
+                {"role": "user", "content": prompt}
+            ])
+            
+            if not response:
+                return {
+                    "status": "error",
+                    "feedback": "Evaluation failed - no response from AI service",
+                    "points_lost": 0
+                }
+            
+            # Parse response
+            result = self._parse_evaluation_response(response, rubric_criteria)
+            return result
+            
+        except Exception as e:
+            logger.error(f"Code evaluation error: {str(e)}")
             return {
-                "filename": filename,
+                "status": "error",
+                "feedback": f"Evaluation failed: {str(e)}",
+                "points_lost": 0
+            }
+    
+    def generate_summary_feedback(self, individual_feedback: List[str], lab_name: str) -> str:
+        """Generate summary feedback from individual file feedback with caching"""
+        try:
+            # Combine feedback for analysis
+            feedback_text = "\n".join(individual_feedback[:5])  # Limit to 5 feedback items
+            
+            # Create summary prompt
+            prompt = f"""
+Analyze these code evaluation feedback items for {lab_name} and provide a 2-3 sentence summary focusing on CORE PROGRAMMING CONCEPTS:
+
+{feedback_text}
+
+Focus on programming concepts like:
+- Arrays/Lists handling
+- Loops (for, while)
+- Dictionaries/Objects
+- Functions/Methods
+- Variables/Data types
+- Input/Output handling
+- Calculations/Logic
+- Error handling
+- Code structure/Formatting
+
+DO NOT mention specific lab topics like "GPA calculations" or "time calculations".
+Instead say "student shows good understanding of arrays" or "struggles with loops".
+
+Use random student names like Alex, Jordan, Taylor, Casey, Morgan, etc.
+Respond with only the concept-based analysis.
+"""
+            
+            response = self.create_chat_completion([
+                {"role": "system", "content": "You are an educational analyst. Focus on core programming concepts, not specific lab topics. Be concise and concept-focused."},
+                {"role": "user", "content": prompt}
+            ])
+            
+            return response if response else "Summary analysis not available"
+            
+        except Exception as e:
+            logger.error(f"Summary generation error: {str(e)}")
+            return "Summary analysis not available"
+    
+    def _create_evaluation_prompt(self, code_content: str, rubric_criteria: Dict[str, Any], filename: str) -> str:
+        """Create evaluation prompt from rubric criteria"""
+        criteria_text = ""
+        total_points = 0
+        
+        for criterion, details in rubric_criteria.items():
+            points = details.get('points', 0)
+            description = details.get('description', '')
+            criteria_text += f"- {criterion}: {points} points - {description}\n"
+            total_points += points
+        
+        prompt = f"""
+Evaluate this Python code file '{filename}' using the following rubric criteria:
+
+{criteria_text}
+
+Total possible points: {total_points}
+
+Code to evaluate:
+{code_content}
+
+Instructions:
+1. Check each criterion and deduct points for issues found
+2. Provide specific, actionable feedback for each deduction
+3. Be strict but fair - no double deductions
+4. Give partial credit when appropriate
+5. Focus on programming concepts, not just syntax
+6. Keep feedback concise and clear
+
+Respond in this exact format:
+POINTS_LOST: [total points deducted]
+FEEDBACK: [detailed feedback with specific issues and suggestions]
+"""
+        
+        return prompt
+    
+    def _parse_evaluation_response(self, response: str, rubric_criteria: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse evaluation response from AI"""
+        try:
+            lines = response.strip().split('\n')
+            points_lost = 0
+            feedback = ""
+            
+            for line in lines:
+                line = line.strip()
+                if line.startswith('POINTS_LOST:'):
+                    try:
+                        points_lost = int(line.split(':', 1)[1].strip())
+                    except (ValueError, IndexError):
+                        points_lost = 0
+                elif line.startswith('FEEDBACK:'):
+                    feedback = line.split(':', 1)[1].strip()
+            
+            # If parsing failed, use the entire response as feedback
+            if not feedback:
+                feedback = response.strip()
+            
+            return {
                 "status": "success",
                 "feedback": feedback,
-                "total_points_lost": int(points_lost),
-                "deductions": [],
-                "raw_response": response,
+                "points_lost": points_lost
+            }
+            
+        except Exception as e:
+            logger.error(f"Response parsing error: {str(e)}")
+            return {
+                "status": "error",
+                "feedback": f"Failed to parse evaluation response: {str(e)}",
+                "points_lost": 0
             }
 
-        except Exception as e:
-            return self._create_error_response("PARSE_ERROR", str(e))
-
-    def _create_error_response(self, error_type: str, message: str) -> Dict[str, Any]:
-        """
-        Create standardized error response.
-
-        Args:
-            error_type: Type of error
-            message: Error message
-
-        Returns:
-            Error response dictionary
-        """
-        return {
-            "status": "error",
-            "error_type": error_type,
-            "feedback": f"Error: {message}",
-            "total_points_lost": 0,
-            "deductions": [],
-        }
-
-    def summarize_feedback(self, feedback_json: dict) -> str:
-        """
-        Create a summary of all feedback.
-
-        Args:
-            feedback_json: Dictionary of feedback results
-
-        Returns:
-            Summary string
-        """
-        try:
-            total_files = len(feedback_json)
-            total_points_lost = sum(
-                result.get("total_points_lost", 0) for result in feedback_json.values()
-            )
-            
-            return f"Evaluated {total_files} files. Total points lost: {total_points_lost}"
-            
-        except Exception:
-            return "Evaluation completed"
-
-
-# Global service instance
+# Global instance
 openai_service = OpenAIService()

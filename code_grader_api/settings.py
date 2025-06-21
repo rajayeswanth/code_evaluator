@@ -146,6 +146,76 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 CORS_ALLOW_ALL_ORIGINS = True
 
+# Redis Cache Configuration
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/1",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 50,
+                "retry_on_timeout": True,
+            },
+            "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+            "COMPRESSOR": "django_redis.compressors.zlib.ZlibCompressor",
+        },
+        "KEY_PREFIX": "code_grader",
+        "TIMEOUT": 300,  # 5 minutes default
+    },
+    "api_cache": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/2",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 30,
+                "retry_on_timeout": True,
+            },
+            "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+        },
+        "KEY_PREFIX": "api",
+        "TIMEOUT": 600,  # 10 minutes for API responses
+    },
+    "llm_cache": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/3",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 20,
+                "retry_on_timeout": True,
+            },
+            "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+        },
+        "KEY_PREFIX": "llm",
+        "TIMEOUT": 3600,  # 1 hour for LLM responses
+    },
+    "db_cache": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://127.0.0.1:6379/4",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "CONNECTION_POOL_KWARGS": {
+                "max_connections": 40,
+                "retry_on_timeout": True,
+            },
+            "SERIALIZER": "django_redis.serializers.json.JSONSerializer",
+        },
+        "KEY_PREFIX": "db",
+        "TIMEOUT": 1800,  # 30 minutes for database queries
+    },
+}
+
+# Use Redis for session storage
+SESSION_ENGINE = "django.contrib.sessions.backends.cache"
+SESSION_CACHE_ALIAS = "default"
+
+# Cache middleware settings
+CACHE_MIDDLEWARE_SECONDS = 300
+CACHE_MIDDLEWARE_KEY_PREFIX = "code_grader"
+CACHE_MIDDLEWARE_ALIAS = "default"
+
 # Logging Configuration
 import os
 

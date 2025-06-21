@@ -1,7 +1,9 @@
 import re
+import logging
 from typing import Dict, Any, List, Tuple
 from django.core.exceptions import ValidationError
-from utils.logger import logger
+
+logger = logging.getLogger(__name__)
 
 
 class InputValidator:

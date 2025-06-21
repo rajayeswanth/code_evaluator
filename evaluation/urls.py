@@ -11,4 +11,5 @@ urlpatterns = [
     path('evaluations/', views.get_all_evaluations, name='get_all_evaluations'),
     path('evaluations/<int:evaluation_id>/', views.get_evaluation_by_id, name='get_evaluation_by_id'),
     path('evaluations/<int:evaluation_id>/llm-metrics/', views.get_llm_metrics_by_evaluation, name='get_llm_metrics_by_evaluation'),
+    path('test-cache/', views.test_cache, name='test_cache'),
 ] 

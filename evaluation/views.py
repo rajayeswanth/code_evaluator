@@ -13,6 +13,13 @@ from metrics_service.monitor import metrics_monitor
 from metrics_service.models import EvaluationMetrics, RequestMetrics
 from datetime import datetime, timedelta
 import logging
+from django.core.paginator import Paginator
+from django.db import transaction
+from django.db.models import Sum, Avg
+from cache_utils import cache_api_response, get_cache_stats
+import random
+from django_ratelimit.decorators import ratelimit
+from django_ratelimit.core import is_ratelimited
 
 from .serializers import (
     LabRubricSerializer, StudentSerializer, EvaluationSerializer, 
@@ -22,6 +29,9 @@ from .models import LabRubric, Student, Evaluation, EvaluationSession
 from data_service.file_processor import FileProcessor
 from evaluator_service.code_evaluator import CodeEvaluator
 from evaluator_service.openai_service import openai_service
+from .validators import InputValidator
+from .services import EvaluationService
+from metrics_service.monitor import MetricsMonitor
 
 # Set up logging
 logger = logging.getLogger('evaluation')
@@ -29,10 +39,16 @@ api_logger = logging.getLogger('api_requests')
 db_logger = logging.getLogger('database_operations')
 activity_logger = logging.getLogger('user_activity')
 
+# Initialize services
+evaluation_service = EvaluationService()
+metrics_monitor = MetricsMonitor()
+
 # Simple API views
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='10/m', method='POST', block=True)  # 10 evaluations per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def create_rubric(request):
     """Create a new rubric for a lab"""
     start_time = time.time()
@@ -79,6 +95,8 @@ def create_rubric(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='10/m', method='POST', block=True)  # 10 evaluations per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_rubric_id(request):
     """Get rubric ID by lab details"""
     start_time = time.time()
@@ -127,6 +145,8 @@ def get_rubric_id(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='10/m', method='POST', block=True)  # 10 evaluations per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def evaluate_submission(request):
     """Evaluate student code submission"""
     start_time = time.time()
@@ -338,6 +358,8 @@ def evaluate_submission(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_rubrics(request):
     """Get all rubrics with pagination"""
     start_time = time.time()
@@ -395,6 +417,8 @@ def get_rubrics(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='120/m', method='GET', block=True)  # 120 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def health_check(request):
     """Simple health check"""
     start_time = time.time()
@@ -407,6 +431,8 @@ def health_check(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_all_evaluations(request):
     """Get all evaluations with pagination"""
     try:
@@ -457,6 +483,8 @@ def get_all_evaluations(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_evaluation_by_id(request, evaluation_id):
     """Get a single evaluation by its ID"""
     try:
@@ -483,6 +511,8 @@ def get_evaluation_by_id(request, evaluation_id):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_llm_metrics_by_evaluation(request, evaluation_id):
     """Get detailed LLM metrics for a specific evaluation"""
     try:
@@ -588,3 +618,189 @@ def get_llm_metrics_by_evaluation(request, evaluation_id):
             'error': 'Failed to retrieve metrics',
             'details': str(e)
         }, status=500)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
+def get_stats(request):
+    """Get evaluation statistics for the last N days"""
+    try:
+        days = int(request.GET.get('days', 30))
+        
+        if days < 1 or days > 365:
+            return Response({
+                'status': 'error',
+                'message': 'Invalid days parameter',
+                'errors': ['Days must be between 1 and 365'],
+                'missing_entities': ['valid_days_parameter']
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Calculate date range
+        end_date = timezone.now()
+        start_date = end_date - timedelta(days=days)
+        
+        # Get statistics
+        sessions = EvaluationSession.objects.filter(created_at__range=(start_date, end_date))
+        
+        total_sessions = sessions.count()
+        total_evaluations = Evaluation.objects.filter(created_at__range=(start_date, end_date)).count()
+        
+        # Get token usage from metrics
+        from metrics_service.models import RequestMetrics
+        metrics = RequestMetrics.objects.filter(created_at__range=(start_date, end_date))
+        total_tokens = metrics.aggregate(total=Sum('total_tokens'))['total'] or 0
+        
+        # Calculate average processing time
+        avg_time = sessions.aggregate(avg_time=Avg('total_evaluation_time_seconds'))['avg_time'] or 0
+        
+        # Calculate success rate
+        successful_sessions = sessions.filter(status='completed').count()
+        success_rate = (successful_sessions / total_sessions * 100) if total_sessions > 0 else 0
+        
+        return Response({
+            'status': 'success',
+            'message': f'Retrieved evaluation statistics for last {days} days',
+            'data': {
+                'period_days': days,
+                'total_sessions': total_sessions,
+                'total_evaluations': total_evaluations,
+                'total_tokens_used': total_tokens,
+                'average_evaluation_time_seconds': round(avg_time, 2),
+                'success_rate': round(success_rate, 1)
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Get stats error: {str(e)}")
+        return Response({
+            'status': 'error',
+            'message': 'Failed to retrieve statistics',
+            'errors': [str(e)]
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
+def get_performance(request, student_id):
+    """Get performance statistics for a specific student"""
+    try:
+        if not student_id:
+            return Response({
+                'status': 'error',
+                'message': 'Missing student ID',
+                'errors': ['Student ID is required'],
+                'missing_entities': ['student_id']
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        student = Student.objects.filter(student_id=student_id).first()
+        
+        if not student:
+            return Response({
+                'status': 'error',
+                'message': 'Student not found',
+                'errors': ['Student not found'],
+                'missing_entities': ['student']
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get performance data
+        evaluations = Evaluation.objects.filter(student=student)
+        total_evaluations = evaluations.count()
+        total_points_lost = evaluations.aggregate(total=Sum('total_points_lost'))['total'] or 0
+        avg_points_lost = evaluations.aggregate(avg=Avg('total_points_lost'))['avg'] or 0
+        
+        # Get recent evaluations
+        recent_evaluations = evaluations.order_by('-created_at')[:5]
+        recent_data = []
+        for eval in recent_evaluations:
+            recent_data.append({
+                'filename': eval.filename,
+                'status': eval.status,
+                'total_points_lost': eval.total_points_lost,
+                'created_at': eval.created_at.isoformat()
+            })
+        
+        return Response({
+            'status': 'success',
+            'message': f'Retrieved performance for student: {student_id}',
+            'data': {
+                'student_id': student.student_id,
+                'student_name': student.name,
+                'total_evaluations': total_evaluations,
+                'total_points_lost': total_points_lost,
+                'average_points_lost': round(avg_points_lost, 2),
+                'recent_evaluations': recent_data
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Get performance error: {str(e)}")
+        return Response({
+            'status': 'error',
+            'message': 'Failed to retrieve performance',
+            'errors': [str(e)]
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+@ratelimit(key='ip', rate='120/m', method='GET', block=True)  # 120 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
+def health_check(request):
+    """Check system health and status"""
+    try:
+        # Check database connection
+        from django.db import connection
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+        
+        # Check OpenAI service
+        openai_status = "healthy"
+        try:
+            # Simple test call
+            test_response = evaluation_service.openai_service.create_chat_completion([
+                {"role": "user", "content": "Hello"}
+            ])
+            if not test_response:
+                openai_status = "unhealthy"
+        except:
+            openai_status = "unhealthy"
+        
+        # Get cache stats
+        cache_stats = get_cache_stats()
+        
+        overall_status = "healthy" if openai_status == "healthy" else "degraded"
+        
+        return Response({
+            'status': overall_status,
+            'database': 'healthy',
+            'openai_service': openai_status,
+            'cache_stats': cache_stats,
+            'timestamp': timezone.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Health check error: {str(e)}")
+        return Response({
+            'status': 'unhealthy',
+            'database': 'unhealthy',
+            'openai_service': 'unknown',
+            'error': str(e),
+            'timestamp': timezone.now().isoformat()
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# Legacy endpoint for backward compatibility
+@api_view(['POST'])
+@permission_classes([AllowAny])
+@ratelimit(key='ip', rate='10/m', method='POST', block=True)  # 10 evaluations per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
+def legacy_evaluate(request):
+    """Legacy evaluation endpoint for backward compatibility"""
+    return evaluate_submission(request)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
+def test_cache(request):
+    return Response({"value": random.randint(1, 1000000)})

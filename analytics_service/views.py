@@ -5,6 +5,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from django.utils import timezone
 from datetime import datetime, timedelta
+from cache_utils import cache_api_response
+from django_ratelimit.decorators import ratelimit
 
 from .analytics import AnalyticsService
 from evaluation.models import Student
@@ -13,6 +15,8 @@ from .models import StudentPerformance
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_student_details(request, student_id):
     """Get detailed student information"""
     try:
@@ -33,6 +37,8 @@ def get_student_details(request, student_id):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_all_students(request):
     """Get all students with pagination"""
     try:
@@ -94,6 +100,8 @@ def get_all_students(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def analyze_lab_section(request, lab_name, section):
     """Analyze performance by lab and section"""
     try:
@@ -118,6 +126,8 @@ def analyze_lab_section(request, lab_name, section):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def analyze_lab(request, lab_name):
     """Analyze performance by lab"""
     try:
@@ -142,6 +152,8 @@ def analyze_lab(request, lab_name):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def analyze_semester(request, semester):
     """Analyze performance by semester"""
     try:
@@ -166,6 +178,8 @@ def analyze_semester(request, semester):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def analyze_lab_semester(request, lab_name, semester):
     """Analyze performance by lab and semester"""
     try:
@@ -190,6 +204,8 @@ def analyze_lab_semester(request, lab_name, semester):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def analyze_student_performance(request, student_id):
     """Analyze and summarize student's overall performance"""
     try:
@@ -210,6 +226,8 @@ def analyze_student_performance(request, student_id):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_student_performance_by_lab(request):
     """Get student performance by lab with pagination"""
     try:
@@ -287,6 +305,8 @@ def get_student_performance_by_lab(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_student_performance_summary(request, student_id):
     """Get comprehensive performance summary for a student"""
     try:
@@ -307,6 +327,8 @@ def get_student_performance_summary(request, student_id):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_summarized_performance_by_lab(request, lab_name):
     """Get summarized performance for a specific lab with optional filters"""
     try:
@@ -330,6 +352,8 @@ def get_summarized_performance_by_lab(request, lab_name):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_summarized_performance_by_section(request, section):
     """Get summarized performance for a specific section with optional filters"""
     try:
@@ -353,6 +377,8 @@ def get_summarized_performance_by_section(request, section):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_summarized_performance_by_semester(request, semester):
     """Get summarized performance for a specific semester with optional filters"""
     try:
@@ -376,6 +402,8 @@ def get_summarized_performance_by_semester(request, semester):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_all_labs(request):
     """Get all labs with basic information"""
     try:
@@ -396,6 +424,8 @@ def get_all_labs(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
+@cache_api_response(cache_alias="api_cache", timeout=7200)
 def get_lab_by_id(request, lab_id):
     """Get detailed information about a specific lab by ID"""
     try:
