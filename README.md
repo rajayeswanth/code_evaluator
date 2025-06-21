@@ -4,11 +4,11 @@ This is a personal project I created while working as a Graduate Teaching Assist
 
 ## The Problem
 
-Our university has around 1600 students taking the introductory computer science course each semester. With 9 instructors, 17 GTAs, 40 TAs, and 1 program coordinator, maintaining consistency in grading was becoming a nightmare. Each grader had their own interpretation of the rubrics, leading to inconsistent feedback and scores for the same quality of work. Students were getting frustrated, and we were spending way too much time on grading.
+Our university has around 1600 students taking the introductory computer science course each semester. With 9 instructors, 17 GTAs, 40 TAs, and 1 program coordinator, maintaining consistency in grading was becoming a nightmare. Each grader had their interpretation of the rubrics, leading to inconsistent feedback and scores for the same quality of work. Students were getting frustrated, and we were spending way too much time on grading.
 
 ## The Solution
 
-I thought about using Large Language Models (LLMs) to provide consistent, rubric-based grading while saving us significant time. The idea was simple: instead of having multiple people grade the same type of assignment differently, we could use AI to follow strict rubrics and provide standardized feedback.
+I considered using Large Language Models (LLMs) to provide consistent, rubric-based grading, which would save us significant time. The idea was simple: instead of having multiple people grade the same type of assignment differently, we could use AI to follow strict rubrics and provide standardized feedback.
 
 ## Initial Architecture
 
@@ -16,8 +16,7 @@ The system works by taking student code submissions and processing them through 
 
 1. **Code Cleaning**: First, we clean and format the submitted code to ensure it's properly structured for analysis.
 
-2. **Division into Parts**: We break down the code into logical sections (functions, classes, main logic, etc.) and send each part to a specialized LLM for evaluation.
-
+2. **Division into Parts**: We break down the code into three parts( cause input text is expected to have 3 program submissions from students like Lab1A, Lab2A, Lab3A)
 3. **Multi-Stage Evaluation**: Each code section is evaluated by one LLM following strict rubrics, then a second LLM acts as an evaluator to review the first LLM's response and ensure it follows the rubric correctly and maintains consistent output format.
 
 This approach ensures that every student gets evaluated using the same criteria, regardless of which TA or GTA would have graded their work.
@@ -51,7 +50,7 @@ The analytics system can answer complex questions about student performance usin
 
 ## Technical Infrastructure
 
-The system uses Redis for caching to improve performance and reduce API costs. All API responses are cached for 2 hours, which significantly reduces the load on our LLM providers and speeds up response times for repeated queries.
+The system utilizes Redis for caching to enhance performance and minimize API costs. All API responses are cached for 2 hours, which significantly reduces the load on our LLM providers and speeds up response times for repeated queries.
 
 The backend is built with Django and Django REST Framework, providing a robust API that can handle the high volume of requests from our large student body. We use PostgreSQL for data storage and Redis for caching and session management.
 
@@ -85,4 +84,4 @@ The system provides comprehensive APIs for:
 
 This is a personal project I developed to explore how AI could improve educational processes. While it demonstrates the potential for automated grading systems, it was never deployed in production. The project serves as a proof of concept for how LLMs could be used to maintain grading consistency in large educational institutions.
 
-The system showcases modern web development practices including microservices architecture, comprehensive API design, caching strategies, and analytics capabilities. It's a good example of how to build scalable educational technology platforms. 
+The system showcases modern web development practices, including microservices architecture, comprehensive API design, caching strategies, and analytics capabilities. It's a good example of how to build scalable educational technology platforms. 
