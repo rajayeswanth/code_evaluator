@@ -1,0 +1,47 @@
+{
+  "Lab 3": {
+    "semester": "Spring 2025",
+    "section": "14",
+    "total_points": 100,
+    "criteria": {
+      "Lab3A.py": {
+        "variable_initialization": {"points": 4, "description": "All variables are initialized before use"},
+        "input_prompt": {"points": 4, "description": "Prompts for amount owed and APR with clear messages"},
+        "input_type": {"points": 4, "description": "Correctly uses int and float for inputs"},
+        "calculation_monthly_rate": {"points": 7, "description": "Correctly calculates monthly percentage rate"},
+        "calculation_min_payment": {"points": 7, "description": "Correctly calculates minimum payment"},
+        "output_monthly_rate": {"points": 3, "description": "Prints monthly percentage rate with correct rounding"},
+        "output_min_payment": {"points": 3, "description": "Prints minimum payment with correct rounding and $ sign"},
+        "variable_naming": {"points": 1, "description": "Uses clear and appropriate variable names"},
+        "formatting": {"points": 1, "description": "Code is neatly formatted and readable"},
+        "comments": {"points": 1, "description": "Includes helpful comments if needed"}
+      },
+      "Lab3B.py": {
+        "variable_initialization": {"points": 4, "description": "All variables are initialized before use"},
+        "input_prompts": {"points": 4, "description": "Prompts for all course hours and grades with clear messages"},
+        "input_type": {"points": 4, "description": "Correctly uses int for all inputs"},
+        "calculation_total_hours": {"points": 4, "description": "Correctly calculates total hours"},
+        "calculation_quality_points": {"points": 7, "description": "Correctly calculates total quality points"},
+        "calculation_gpa": {"points": 7, "description": "Correctly calculates GPA"},
+        "output_total_hours": {"points": 2, "description": "Prints total hours in correct format"},
+        "output_quality_points": {"points": 2, "description": "Prints total quality points in correct format"},
+        "output_gpa": {"points": 3, "description": "Prints GPA rounded to 2 decimals"},
+        "variable_naming": {"points": 1, "description": "Uses clear and appropriate variable names"},
+        "formatting": {"points": 1, "description": "Code is neatly formatted and readable"},
+        "comments": {"points": 1, "description": "Includes helpful comments if needed"}
+      },
+      "Lab3C.py": {
+        "variable_initialization": {"points": 3, "description": "All variables are initialized before use"},
+        "input_prompts": {"points": 3, "description": "Prompts for all sandwich sizes with clear messages"},
+        "input_type": {"points": 3, "description": "Correctly uses int for all inputs"},
+        "calculation_cooking_time": {"points": 7, "description": "Correctly calculates total cooking time in seconds"},
+        "conversion_minutes_seconds": {"points": 6, "description": "Correctly converts total time to minutes and seconds"},
+        "output_sandwich_counts": {"points": 2, "description": "Prints entered sandwich counts in correct format"},
+        "output_total_time": {"points": 3, "description": "Prints total cooking time in correct format"},
+        "variable_naming": {"points": 1, "description": "Uses clear and appropriate variable names"},
+        "formatting": {"points": 1, "description": "Code is neatly formatted and readable"},
+        "comments": {"points": 1, "description": "Includes helpful comments if needed"}
+      }
+    }
+  }
+} 
