@@ -1,20 +1,29 @@
-# Code Grader API - AI-Powered Educational Assessment System
+The Problem
+Our university has around 1600 students taking the introductory computer science course each semester. With 9 instructors, 17 GTAs, 40 TAs, and 1 program coordinator, maintaining consistency in grading was becoming a nightmare. Each grader had their interpretation of the rubrics, leading to inconsistent feedback and scores for the same quality of work. Students were getting frustrated, and we were spending way too much time on grading.
 
-## What I Built
+The Solution
+I considered using Large Language Models (LLMs) to provide consistent, rubric-based grading, which would save us significant time. The idea was simple: instead of having multiple people grade the same type of assignment differently, we could use AI to follow strict rubrics and provide standardized feedback.
 
-This is a  AI-powered code grading and analytics system that I developed as a Graduate Teaching Assistant. It's designed to solve real problems by providing consistent, rubric-based grading and deep insights into student learning patterns. This system is well equiped with logging service, rate limiting service and a caching service
+Initial Architecture
+The system works by taking student code submissions and processing them through a three-stage pipeline:
 
-## Current Architecture & Capabilities
+Code Cleaning: First, we clean and format the submitted code to ensure it's properly structured for analysis.
 
+Division into Parts: We break down the code into three parts( cause input text is expected to have 3 program submissions from students like Lab1A, Lab2A, Lab3A)
 
-1. Automatically cleans and structures student submissions
-2. Handles complex lab submissions with multiple components (Lab1A, Lab1B, Lab1C)
-3. Two AI models work together - one for initial grading, another for quality assurance
-4. Every evaluation follows predefined rubrics to maintain consistency
+Multi-Stage Evaluation: Each code section is evaluated by one LLM following strict rubrics, then a second LLM acts as an evaluator to review the first LLM's response and ensure it follows the rubric correctly and maintains a consistent output format.
+
+This approach ensures that every student gets evaluated using the same criteria, regardless of which TA or GTA would have graded their work.
+
+Student Suggestion Service - RAG Architecture
+It passes the feedback generated in the previous stage to LLM to extract keywords where the student is lagging, then performs a vector search on the FIASS db to get relevant materials.
+Then it again calls the LLM with more context, and then the llm gives more context base suggestions. I also planned to include evaluator LLM for accuracy, but this is a development feature, and I haven't used it much, so due to cost constraints, I didn't implement evaluators.
+
+This model performed well wih using gpt-4o and higher models --> but again, cost constraints!!
 
 ### Advanced Analytics & Insights
 
-#### 📊 Student Performance Analytics
+#### Student Performance Analytics
 - **Individual Student Tracking**: Detailed performance history, trends, and personalized insights
 - **Lab-Specific Analysis**: Deep dive into how students perform on specific programming concepts
 - **Section & Semester Comparisons**: Cross-sectional analysis to identify patterns and outliers
