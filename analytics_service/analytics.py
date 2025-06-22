@@ -3,6 +3,7 @@ Analytics service for student and lab performance analysis.
 Uses simple aggregation and nano model for summaries.
 """
 
+import logging
 from datetime import datetime, timedelta
 from django.utils import timezone
 from django.db.models import Avg, Count, Sum
@@ -10,15 +11,18 @@ from typing import Dict, Any, List
 
 from evaluation.models import Student, Evaluation, EvaluationSession, LabRubric
 from analytics_service.models import StudentPerformance, LabAnalytics
+from analytics_service.vector_service import VectorService
 from evaluator_service.openai_service import openai_service
 from cache_utils import cache_api_response, cache_db_query, cache_llm_response
 
+logger = logging.getLogger(__name__)
 
 class AnalyticsService:
     """Simple analytics service for performance tracking"""
 
     def __init__(self):
         self.openai_service = openai_service
+        self.vector_service = VectorService()
 
     def get_student_details(self, student_id: str) -> Dict[str, Any]:
         """Get detailed student information with comprehensive performance summary"""
@@ -326,7 +330,6 @@ Respond with only the concept-based common issues.
         except Student.DoesNotExist:
             return {"error": "Student not found"}
 
-    @cache_llm_response(cache_alias="llm_cache", timeout=3600)
     def _analyze_student_trend(self, student_id: str, sessions) -> str:
         """Use nano model to analyze student's performance trend by programming concepts"""
         try:
@@ -339,12 +342,22 @@ Respond with only the concept-based common issues.
             if not recent_feedback:
                 return "No recent feedback available for trend analysis"
             
-            # Create simple prompt for nano model focused on programming concepts
+            # Get student-specific performance data
+            total_points_lost = sessions.aggregate(total=Sum('total_points_lost'))['total'] or 0
+            avg_points_lost = sessions.aggregate(avg=Avg('total_points_lost'))['avg'] or 0.0
+            total_sessions = sessions.count()
+            
+            # Create more specific prompt with student's actual performance data
             feedback_text = "\n".join(recent_feedback[:5])
             
             prompt = f"""
-Analyze this student's performance data and provide a 2-3 sentence summary focusing on CORE PROGRAMMING CONCEPTS (not specific lab topics):
+Analyze this specific student's performance data and provide a 2-3 sentence summary focusing on CORE PROGRAMMING CONCEPTS:
 
+Student Performance Data:
+- Total sessions: {total_sessions}
+- Total points lost: {total_points_lost}
+- Average points lost per session: {avg_points_lost:.2f}
+- Recent feedback:
 {feedback_text}
 
 Focus on programming concepts like:
@@ -358,14 +371,16 @@ Focus on programming concepts like:
 - Error handling
 - Code structure/Formatting
 
+Based on this student's SPECIFIC performance data (points lost, feedback patterns), identify which programming concepts they struggle with most.
+
 DO NOT mention specific lab topics like "GPA calculations" or "time calculations".
 Instead say "student is comfortable with arrays" or "struggles with loops".
 
-Respond with only the concept-based analysis.
+Respond with only the concept-based analysis specific to this student's data.
 """
             
             response = self.openai_service.create_chat_completion([
-                {"role": "system", "content": "You are an educational analyst. Focus on core programming concepts, not specific lab topics. Be concise and concept-focused."},
+                {"role": "system", "content": "You are an educational analyst. Focus on core programming concepts, not specific lab topics. Be concise and concept-focused. Each student's analysis should be unique based on their specific performance data."},
                 {"role": "user", "content": prompt}
             ])
             
@@ -677,4 +692,143 @@ Respond with only the concept-based analysis.
         except LabRubric.DoesNotExist:
             return {"error": "Lab not found"}
         except Exception as e:
-            return {"error": f"Failed to get lab details: {str(e)}"} 
+            return {"error": f"Failed to get lab details: {str(e)}"}
+
+    def _generate_student_suggestions(self, student: Student, sessions, performance_summary: str) -> Dict[str, Any]:
+        """Generate personalized suggestions for an individual student"""
+        try:
+            if not self.vector_service.is_available():
+                return {
+                    "error": "Vector database not available",
+                    "message": "Course materials database is not accessible"
+                }
+
+            # ==========================
+            # ⚡️ Stage 1: Get plain text topics
+            # ==========================
+            stage1_prompt = f"""
+You are a programming instructor analyzing a student's performance.
+
+Student: {student.name}
+Performance: {performance_summary}
+
+Based on this performance, list 3 programming topics this student needs help with.
+
+IMPORTANT:
+- Return ONLY plain text lines (one topic per line).
+- Do NOT return JSON.
+Example output:
+array iteration
+function design
+error handling
+"""
+            stage1_response = self.openai_service.create_chat_completion([
+                {"role": "system", "content": "You are a programming instructor. Return only plain text lines (one topic per line). No JSON or extra text."},
+                {"role": "user", "content": stage1_prompt}
+            ])
+            print("\n[DEBUG] Raw LLM topics response:", stage1_response)
+            print("[DEBUG] Response type:", type(stage1_response))
+            print("[DEBUG] Response length:", len(str(stage1_response)) if stage1_response else 0)
+
+            if not stage1_response:
+                print("[DEBUG] LLM response is empty")
+                return {
+                    "error": "Failed to analyze performance",
+                    "message": "Could not identify relevant topics"
+                }
+
+            # Extract plain text topics
+            topics = [line.strip() for line in stage1_response.strip().split('\n') if line.strip()]
+            print("[DEBUG] Extracted topics:", topics)
+            print("[DEBUG] Number of topics found:", len(topics))
+            
+            if len(topics) < 3:
+                print("[DEBUG] Not enough topics, using fallback")
+                topics = ["programming fundamentals", "code structure", "error handling"]
+
+            print("[DEBUG] Final topics (group):", topics)
+
+            # ==========================
+            # ⚡️ Stage 2: Get relevant course materials
+            # ==========================
+            materials = self.vector_service.get_materials_by_topics(topics, top_k_per_topic=2)
+
+            processed_materials = {}
+            for topic, topic_materials in materials.items():
+                sorted_materials = sorted(topic_materials, key=lambda x: x['relevance_score'], reverse=True)[:3]
+                processed_materials[topic] = []
+                for material in sorted_materials:
+                    sentences = material['text'].split('.')[:2]
+                    truncated_text = '. '.join(sentences) + '.' if sentences else material['text'][:100]
+
+                    processed_materials[topic].append({
+                        'file': material['file'],
+                        'text': truncated_text,
+                        'relevance_score': material['relevance_score']
+                    })
+
+            print("[DEBUG] Processed FAISS materials (group, top 3 per topic):", processed_materials)
+
+            # ==========================
+            # ⚡️ Stage 3: Let LLM pick best files for suggestions
+            # ==========================
+            stage3_prompt = f"""
+You are a programming instructor creating suggestions for {student.name}.
+
+Student: {student.name}
+Topics: {', '.join(topics)}
+
+Available materials:
+{self._format_materials_for_prompt(processed_materials)}
+
+Return EXACTLY 3 lines, one for each topic:
+Format:
+[Topic]: [Best Material Filename]
+"""
+            stage3_response = self.openai_service.create_chat_completion([
+                {"role": "system", "content": "You are a programming instructor. Return EXACTLY 3 lines with the best material filenames for the topics. No extra text, no JSON."},
+                {"role": "user", "content": stage3_prompt}
+            ])
+
+            print("\n[DEBUG] Raw LLM suggestions response:", stage3_response)
+
+            # Parse the filenames
+            suggestions_block = ""
+            if stage3_response:
+                suggestions_block = stage3_response.strip()
+            else:
+                suggestions_block = ""
+
+            print("[DEBUG] Final Suggestions Block:", suggestions_block)
+
+            if not suggestions_block or any(line.find(":") == -1 for line in suggestions_block.split('\n')):
+                return {
+                    "error": "Failed to generate suggestions",
+                    "message": "Could not create improvement suggestions"
+                }
+
+            return {
+                "student_name": student.name,
+                "topics_identified": topics,
+                "materials_found": len(processed_materials),
+                "suggestions": suggestions_block,
+                "generated_at": timezone.now().isoformat()
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating student suggestions: {str(e)}")
+            return {
+                "error": "Failed to generate suggestions",
+                "message": str(e)
+            }
+
+    def _format_materials_for_prompt(self, processed_materials: Dict[str, List[Dict[str, Any]]]) -> str:
+        """Format materials for LLM prompt"""
+        formatted = []
+        for topic, materials in processed_materials.items():
+            formatted.append(f"Topic: {topic}")
+            for i, material in enumerate(materials, 1):
+                formatted.append(f"  {i}. {material['file']} (score: {material['relevance_score']:.3f})")
+                formatted.append(f"     Preview: {material['text'][:200]}...")
+            formatted.append("")
+        return "\n".join(formatted) 

@@ -23,7 +23,7 @@ class OpenAIService:
         self.max_tokens = 800
         self.temperature = 0.1
         
-    @cache_llm_response(cache_alias="llm_cache", timeout=3600)
+    # @cache_llm_response(cache_alias="llm_cache", timeout=3600)
     def create_chat_completion(self, messages: List[Dict[str, str]]) -> Optional[str]:
         """Create chat completion with caching"""
         try:

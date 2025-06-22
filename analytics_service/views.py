@@ -11,6 +11,7 @@ from django_ratelimit.decorators import ratelimit
 from .analytics import AnalyticsService
 from evaluation.models import Student
 from .models import StudentPerformance
+from evaluation.models import EvaluationSession
 
 
 @api_view(['GET'])
@@ -25,6 +26,14 @@ def get_student_details(request, student_id):
         
         if "error" in result:
             return Response(result, status=404)
+        
+        # Add suggestions if requested
+        if request.GET.get('suggestions', '').lower() == 'true':
+            student = Student.objects.get(student_id=student_id)
+            sessions = EvaluationSession.objects.filter(student=student)
+            perf_summary = result.get('performance_summary', '')
+            suggestions = analytics._generate_student_suggestions(student, sessions, perf_summary)
+            result['suggestions'] = suggestions
         
         return Response(result)
         
@@ -115,6 +124,16 @@ def analyze_lab_section(request, lab_name, section):
         if "error" in result:
             return Response(result, status=404)
         
+        # Add suggestions if requested
+        if request.GET.get('suggestions', '').lower() == 'true':
+            # Get a sample student from this lab/section for suggestions
+            sample_student = Student.objects.filter(section=section).first()
+            if sample_student:
+                sessions = EvaluationSession.objects.filter(student=sample_student, lab_name=lab_name)
+                perf_summary = result.get('common_issues', '')
+                suggestions = analytics._generate_student_suggestions(sample_student, sessions, perf_summary)
+                result['suggestions'] = suggestions
+        
         return Response(result)
         
     except Exception as e:
@@ -140,6 +159,16 @@ def analyze_lab(request, lab_name):
         
         if "error" in result:
             return Response(result, status=404)
+        
+        # Add suggestions if requested
+        if request.GET.get('suggestions', '').lower() == 'true':
+            # Get a sample student from this lab for suggestions
+            sample_student = Student.objects.filter(evaluationsession__lab_name=lab_name).first()
+            if sample_student:
+                sessions = EvaluationSession.objects.filter(student=sample_student, lab_name=lab_name)
+                perf_summary = result.get('common_issues', '')
+                suggestions = analytics._generate_student_suggestions(sample_student, sessions, perf_summary)
+                result['suggestions'] = suggestions
         
         return Response(result)
         
@@ -167,6 +196,16 @@ def analyze_semester(request, semester):
         if "error" in result:
             return Response(result, status=404)
         
+        # Add suggestions if requested
+        if request.GET.get('suggestions', '').lower() == 'true':
+            # Get a sample student from this semester for suggestions
+            sample_student = Student.objects.filter(semester=semester).first()
+            if sample_student:
+                sessions = EvaluationSession.objects.filter(student=sample_student)
+                perf_summary = result.get('common_issues', '')
+                suggestions = analytics._generate_student_suggestions(sample_student, sessions, perf_summary)
+                result['suggestions'] = suggestions
+        
         return Response(result)
         
     except Exception as e:
@@ -193,6 +232,16 @@ def analyze_lab_semester(request, lab_name, semester):
         if "error" in result:
             return Response(result, status=404)
         
+        # Add suggestions if requested
+        if request.GET.get('suggestions', '').lower() == 'true':
+            # Get a sample student from this lab/semester for suggestions
+            sample_student = Student.objects.filter(semester=semester).first()
+            if sample_student:
+                sessions = EvaluationSession.objects.filter(student=sample_student, lab_name=lab_name)
+                perf_summary = result.get('common_issues', '')
+                suggestions = analytics._generate_student_suggestions(sample_student, sessions, perf_summary)
+                result['suggestions'] = suggestions
+        
         return Response(result)
         
     except Exception as e:
@@ -214,6 +263,14 @@ def analyze_student_performance(request, student_id):
         
         if "error" in result:
             return Response(result, status=404)
+        
+        # Add suggestions if requested
+        if request.GET.get('suggestions', '').lower() == 'true':
+            student = Student.objects.get(student_id=student_id)
+            sessions = EvaluationSession.objects.filter(student=student)
+            perf_summary = result.get('performance_summary', '')
+            suggestions = analytics._generate_student_suggestions(student, sessions, perf_summary)
+            result['suggestions'] = suggestions
         
         return Response(result)
         
@@ -316,6 +373,14 @@ def get_student_performance_summary(request, student_id):
         if "error" in result:
             return Response(result, status=404)
         
+        # Add suggestions if requested
+        if request.GET.get('suggestions', '').lower() == 'true':
+            student = Student.objects.get(student_id=student_id)
+            sessions = EvaluationSession.objects.filter(student=student)
+            perf_summary = result.get('performance_summary', '')
+            suggestions = analytics._generate_student_suggestions(student, sessions, perf_summary)
+            result['suggestions'] = suggestions
+        
         return Response(result)
         
     except Exception as e:
@@ -340,6 +405,16 @@ def get_summarized_performance_by_lab(request, lab_name):
         
         if "error" in result:
             return Response(result, status=404)
+        
+        # Add suggestions if requested
+        if request.GET.get('suggestions', '').lower() == 'true':
+            # Get a sample student from this lab for suggestions
+            sample_student = Student.objects.filter(evaluationsession__lab_name=lab_name).first()
+            if sample_student:
+                sessions = EvaluationSession.objects.filter(student=sample_student, lab_name=lab_name)
+                perf_summary = result.get('performance_summary', '')
+                suggestions = analytics._generate_student_suggestions(sample_student, sessions, perf_summary)
+                result['suggestions'] = suggestions
         
         return Response(result)
         
@@ -366,6 +441,16 @@ def get_summarized_performance_by_section(request, section):
         if "error" in result:
             return Response(result, status=404)
         
+        # Add suggestions if requested
+        if request.GET.get('suggestions', '').lower() == 'true':
+            # Get a sample student from this section for suggestions
+            sample_student = Student.objects.filter(section=section).first()
+            if sample_student:
+                sessions = EvaluationSession.objects.filter(student=sample_student)
+                perf_summary = result.get('performance_summary', '')
+                suggestions = analytics._generate_student_suggestions(sample_student, sessions, perf_summary)
+                result['suggestions'] = suggestions
+        
         return Response(result)
         
     except Exception as e:
@@ -390,6 +475,16 @@ def get_summarized_performance_by_semester(request, semester):
         
         if "error" in result:
             return Response(result, status=404)
+        
+        # Add suggestions if requested
+        if request.GET.get('suggestions', '').lower() == 'true':
+            # Get a sample student from this semester for suggestions
+            sample_student = Student.objects.filter(semester=semester).first()
+            if sample_student:
+                sessions = EvaluationSession.objects.filter(student=sample_student)
+                perf_summary = result.get('performance_summary', '')
+                suggestions = analytics._generate_student_suggestions(sample_student, sessions, perf_summary)
+                result['suggestions'] = suggestions
         
         return Response(result)
         
