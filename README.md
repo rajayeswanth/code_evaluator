@@ -168,8 +168,8 @@ For Example
 - *"What's the process for dropping a class?"*
 - *"Where can I get my student ID card?"*
 
-##need to add user based authentication --> right now im using it in local 
-## advcaced user storage capabilities -> like hashing to protect user data
+need to add user-based authentication --> right now im using it in local 
+advanced user storage capabilities -> like hashing to protect user data
 
 ###  **How It Works**
 1. **Natural Language Processing**: Students ask questions in plain English
