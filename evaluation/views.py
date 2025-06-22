@@ -307,7 +307,7 @@ def evaluate_submission(request):
         
         # Update existing evaluation or create new one
         if existing_evaluation:
-            db_logger.info(f"Database operation: Update existing evaluation {evaluation.id} for student {data['student_id']}")
+            db_logger.info(f"Database operation: Update existing evaluation {existing_evaluation.id} for student {data['student_id']}")
             existing_evaluation.status = 'completed'
             existing_evaluation.feedback = lab_feedback_json
             existing_evaluation.total_points_lost = result['total_points_lost']

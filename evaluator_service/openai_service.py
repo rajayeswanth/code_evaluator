@@ -1,6 +1,6 @@
 """
 OpenAI service for code evaluation using GPT-4.1-nano model.
-Optimized for consistent, concise feedback with token management.
+Optimized for beginner-friendly evaluation with topic-focused feedback.
 """
 
 import os
@@ -10,6 +10,7 @@ from typing import Dict, Any, List, Optional
 from openai import OpenAI
 from django.conf import settings
 from cache_utils import cache_llm_response
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,8 @@ class OpenAIService:
     
     def __init__(self):
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-        self.model = "gpt-4o-mini"  # Using gpt-4o-mini as nano equivalent
-        self.max_tokens = 500
+        self.model = "gpt-4o-mini"
+        self.max_tokens = 800
         self.temperature = 0.1
         
     @cache_llm_response(cache_alias="llm_cache", timeout=3600)
@@ -43,27 +44,28 @@ class OpenAIService:
             return None
     
     def evaluate_code_with_rubric(self, code_content: str, rubric_criteria: Dict[str, Any], filename: str) -> Dict[str, Any]:
-        """Evaluate code using specific rubric criteria with caching"""
+        """Evaluate code using three parallel LLMs with beginner-friendly approach"""
         try:
             # Create evaluation prompt
-            prompt = self._create_evaluation_prompt(code_content, rubric_criteria, filename)
+            prompt = self._create_beginner_evaluation_prompt(code_content, rubric_criteria, filename)
             
-            # Get cached or fresh response
-            response = self.create_chat_completion([
-                {"role": "system", "content": "You are a strict code evaluator. Follow rubrics exactly. Give concise, actionable feedback."},
-                {"role": "user", "content": prompt}
-            ])
+            # Run three parallel evaluations
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                futures = []
+                for i in range(3):
+                    future = executor.submit(self._single_evaluation, prompt, f"evaluator_{i+1}")
+                    futures.append(future)
+                
+                # Collect all results
+                results = []
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result:
+                        results.append(result)
             
-            if not response:
-                return {
-                    "status": "error",
-                    "feedback": "Evaluation failed - no response from AI service",
-                    "points_lost": 0
-                }
-            
-            # Parse response
-            result = self._parse_evaluation_response(response, rubric_criteria)
-            return result
+            # Use evaluator model to combine results
+            final_result = self._evaluate_with_evaluator_model(results, filename)
+            return final_result
             
         except Exception as e:
             logger.error(f"Code evaluation error: {str(e)}")
@@ -73,49 +75,65 @@ class OpenAIService:
                 "points_lost": 0
             }
     
-    def generate_summary_feedback(self, individual_feedback: List[str], lab_name: str) -> str:
-        """Generate summary feedback from individual file feedback with caching"""
+    def _single_evaluation(self, prompt: str, evaluator_name: str) -> Optional[Dict[str, Any]]:
+        """Single LLM evaluation"""
         try:
-            # Combine feedback for analysis
-            feedback_text = "\n".join(individual_feedback[:5])  # Limit to 5 feedback items
-            
-            # Create summary prompt
-            prompt = f"""
-Analyze these code evaluation feedback items for {lab_name} and provide a 2-3 sentence summary focusing on CORE PROGRAMMING CONCEPTS:
-
-{feedback_text}
-
-Focus on programming concepts like:
-- Arrays/Lists handling
-- Loops (for, while)
-- Dictionaries/Objects
-- Functions/Methods
-- Variables/Data types
-- Input/Output handling
-- Calculations/Logic
-- Error handling
-- Code structure/Formatting
-
-DO NOT mention specific lab topics like "GPA calculations" or "time calculations".
-Instead say "student shows good understanding of arrays" or "struggles with loops".
-
-Use random student names like Alex, Jordan, Taylor, Casey, Morgan, etc.
-Respond with only the concept-based analysis.
-"""
-            
             response = self.create_chat_completion([
-                {"role": "system", "content": "You are an educational analyst. Focus on core programming concepts, not specific lab topics. Be concise and concept-focused."},
+                {"role": "system", "content": f"You are {evaluator_name}, a beginner-friendly code evaluator. Focus on core programming concepts only."},
                 {"role": "user", "content": prompt}
             ])
             
-            return response if response else "Summary analysis not available"
+            if response:
+                return self._parse_json_response(response)
+            return None
             
         except Exception as e:
-            logger.error(f"Summary generation error: {str(e)}")
-            return "Summary analysis not available"
+            logger.error(f"Single evaluation error: {str(e)}")
+            return None
     
-    def _create_evaluation_prompt(self, code_content: str, rubric_criteria: Dict[str, Any], filename: str) -> str:
-        """Create evaluation prompt from rubric criteria"""
+    def _evaluate_with_evaluator_model(self, results: List[Dict[str, Any]], filename: str) -> Dict[str, Any]:
+        """Use evaluator model to combine and finalize results"""
+        try:
+            # Create evaluator prompt
+            evaluator_prompt = f"""
+You are the final evaluator. Review these three evaluations for '{filename}' and provide the final result.
+
+Evaluations:
+{json.dumps(results, indent=2)}
+
+Provide the final evaluation in this exact JSON format:
+{{
+    "status": "success",
+    "result": "correct" OR {{
+        "issues": [
+            {{"issue": "specific programming issue description", "points": -X}},
+            {{"issue": "another specific issue description", "points": -X}}
+        ]
+    }},
+    "topics_lacking": ["array_handling", "loop_control", "variable_scope", etc.],
+    "summary": "2-3 sentence summary focusing on programming topics student needs to improve"
+}}
+
+Focus on core programming topics like: arrays, loops, variables, functions, conditionals, input/output.
+Combine the evaluations and identify the specific programming issues found in the code.
+"""
+            
+            response = self.create_chat_completion([
+                {"role": "system", "content": "You are the final evaluator. Combine evaluations and focus on programming topics."},
+                {"role": "user", "content": evaluator_prompt}
+            ])
+            
+            if response:
+                return self._parse_json_response(response)
+            else:
+                return {"status": "error", "feedback": "Evaluator model failed"}
+                
+        except Exception as e:
+            logger.error(f"Evaluator model error: {str(e)}")
+            return {"status": "error", "feedback": f"Evaluator failed: {str(e)}"}
+    
+    def _create_beginner_evaluation_prompt(self, code_content: str, rubric_criteria: Dict[str, Any], filename: str) -> str:
+        """Create beginner-friendly evaluation prompt"""
         criteria_text = ""
         total_points = 0
         
@@ -126,7 +144,7 @@ Respond with only the concept-based analysis.
             total_points += points
         
         prompt = f"""
-Evaluate this Python code file '{filename}' using the following rubric criteria:
+Evaluate this Python code file '{filename}' for BEGINNERS using these criteria:
 
 {criteria_text}
 
@@ -135,55 +153,98 @@ Total possible points: {total_points}
 Code to evaluate:
 {code_content}
 
-Instructions:
-1. Check each criterion and deduct points for issues found
-2. Provide specific, actionable feedback for each deduction
-3. Be strict but fair - no double deductions
-4. Give partial credit when appropriate
-5. Focus on programming concepts, not just syntax
-6. Keep feedback concise and clear
+BEGINNER-FRIENDLY EVALUATION RULES:
+1. NO deductions for missing input validation
+2. NO deductions for extra code or preprocessing steps
+3. NO deductions for code formatting or comments
+4. Focus ONLY on core programming concepts
+5. Be encouraging and constructive
+6. Only deduct points for fundamental programming errors
 
-Respond in this exact format:
-POINTS_LOST: [total points deducted]
-FEEDBACK: [detailed feedback with specific issues and suggestions]
+Core programming topics to evaluate:
+- Array/List handling and manipulation
+- Loop implementation and control
+- Variable declaration and usage
+- Function definition and calls
+- Conditional statements (if/else)
+- Basic calculations and logic
+- Input/Output operations
+
+Respond in this exact JSON format:
+{{
+    "status": "success",
+    "result": "correct" OR {{
+        "issues": [
+            {{"issue": "specific programming issue found", "points": -X}},
+            {{"issue": "another specific issue found", "points": -X}}
+        ]
+    }},
+    "topics_lacking": ["array_handling", "loop_control", "variable_scope", etc.],
+    "summary": "2-3 sentence summary focusing on programming topics student needs to improve"
+}}
+
+If code is correct, use "correct". If there are issues, list the specific programming concept problems you find in the actual code.
 """
         
         return prompt
     
-    def _parse_evaluation_response(self, response: str, rubric_criteria: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse evaluation response from AI"""
+    def _parse_json_response(self, response: str) -> Dict[str, Any]:
+        """Parse JSON response from AI"""
         try:
-            lines = response.strip().split('\n')
-            points_lost = 0
-            feedback = ""
+            # Clean the response
+            response = response.strip()
+            if response.startswith('```json'):
+                response = response[7:]
+            if response.endswith('```'):
+                response = response[:-3]
             
+            # Parse JSON
+            result = json.loads(response.strip())
+            return result
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing error: {str(e)}")
+            # Fallback parsing
+            return self._fallback_parse(response)
+        except Exception as e:
+            logger.error(f"Response parsing error: {str(e)}")
+            return {"status": "error", "feedback": f"Failed to parse response: {str(e)}"}
+    
+    def _fallback_parse(self, response: str) -> Dict[str, Any]:
+        """Fallback parsing for non-JSON responses"""
+        try:
+            # Look for "correct" in response
+            if "correct" in response.lower():
+                return {
+                    "status": "success",
+                    "result": "correct",
+                    "topics_lacking": [],
+                    "summary": "Code is correct"
+                }
+            
+            # Try to extract issues
+            issues = []
+            topics = []
+            
+            lines = response.split('\n')
             for line in lines:
                 line = line.strip()
-                if line.startswith('POINTS_LOST:'):
-                    try:
-                        points_lost = int(line.split(':', 1)[1].strip())
-                    except (ValueError, IndexError):
-                        points_lost = 0
-                elif line.startswith('FEEDBACK:'):
-                    feedback = line.split(':', 1)[1].strip()
-            
-            # If parsing failed, use the entire response as feedback
-            if not feedback:
-                feedback = response.strip()
+                if 'points' in line.lower() or '-' in line:
+                    # Extract issue description
+                    if ':' in line:
+                        issue = line.split(':', 1)[1].strip()
+                        issues.append({"issue": issue, "points": -2})
             
             return {
                 "status": "success",
-                "feedback": feedback,
-                "points_lost": points_lost
+                "result": {"issues": issues} if issues else "correct",
+                "topics_lacking": topics,
+                "summary": "Evaluation completed"
             }
             
         except Exception as e:
-            logger.error(f"Response parsing error: {str(e)}")
-            return {
-                "status": "error",
-                "feedback": f"Failed to parse evaluation response: {str(e)}",
-                "points_lost": 0
-            }
+            
+            return {"status": "error", "feedback": f"Fallback parsing failed: {str(e)}"}
 
 # Global instance
 openai_service = OpenAIService()
