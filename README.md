@@ -1,10 +1,13 @@
-The Problem
+## Code Grader API
+This is a personal project I created while working as a Graduate Teaching Assistant (GTA) at my university. I built this system to solve a real problem we were facing with grading consistency across a large computer science course.
+
+## The Problem
 Our university has around 1600 students taking the introductory computer science course each semester. With 9 instructors, 17 GTAs, 40 TAs, and 1 program coordinator, maintaining consistency in grading was becoming a nightmare. Each grader had their interpretation of the rubrics, leading to inconsistent feedback and scores for the same quality of work. Students were getting frustrated, and we were spending way too much time on grading.
 
-The Solution
+## The Solution
 I considered using Large Language Models (LLMs) to provide consistent, rubric-based grading, which would save us significant time. The idea was simple: instead of having multiple people grade the same type of assignment differently, we could use AI to follow strict rubrics and provide standardized feedback.
 
-Initial Architecture
+## Initial Architecture
 The system works by taking student code submissions and processing them through a three-stage pipeline:
 
 Code Cleaning: First, we clean and format the submitted code to ensure it's properly structured for analysis.
@@ -15,7 +18,7 @@ Multi-Stage Evaluation: Each code section is evaluated by one LLM following stri
 
 This approach ensures that every student gets evaluated using the same criteria, regardless of which TA or GTA would have graded their work.
 
-Student Suggestion Service - RAG Architecture
+## Student Suggestion Service - RAG Architecture
 It passes the feedback generated in the previous stage to LLM to extract keywords where the student is lagging, then performs a vector search on the FIASS db to get relevant materials.
 Then it again calls the LLM with more context, and then the llm gives more context base suggestions. I also planned to include evaluator LLM for accuracy, but this is a development feature, and I haven't used it much, so due to cost constraints, I didn't implement evaluators.
 
