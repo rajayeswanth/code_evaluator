@@ -36,8 +36,8 @@ class CodeEvaluator:
 
         try:
             # Initial evaluation
-            initial_result = self.openai_service.evaluate_code(
-                filename=filename, code=code, rubric=rubric, evaluation_type="initial"
+            initial_result = self.openai_service.evaluate_code_with_rubric(
+                code_content=code, rubric_criteria=rubric, filename=filename
             )
 
             if not initial_result:
@@ -46,11 +46,10 @@ class CodeEvaluator:
                 )
 
             # Double-check evaluation
-            double_check_result = self.openai_service.evaluate_code(
-                filename=filename,
-                code=code,
-                rubric=rubric,
-                evaluation_type="double_check",
+            double_check_result = self.openai_service.evaluate_code_with_rubric(
+                code_content=code,
+                rubric_criteria=rubric,
+                filename=filename
             )
 
             if not double_check_result:
@@ -135,26 +134,47 @@ class CodeEvaluator:
 
         total_time = time.time() - start_time
 
-        # Combine all feedback into one string with strict formatting
+        # Format results in the new JSON structure
         lab_feedback = {}
         total_points_lost = 0
+        all_topics_lacking = set()
+        all_summaries = []
         
         for filename, result in evaluation_results.items():
             if result.get('status') != 'error':
-                feedback = result.get('feedback', '')
-                points_lost = result.get('total_points_lost', 0)
-                total_points_lost += points_lost
+                result_data = result.get('result', {})
                 
-                # Format feedback consistently
-                if feedback.strip() == "correct":
+                if result_data == "correct":
                     lab_feedback[filename] = "correct"
                 else:
-                    lab_feedback[filename] = feedback
+                    # Format issues as requested
+                    issues = result_data.get('issues', [])
+                    if issues:
+                        formatted_issues = {}
+                        file_points_lost = 0
+                        for issue in issues:
+                            issue_desc = issue.get('issue', 'Unknown issue')
+                            points = abs(issue.get('points', 2))
+                            file_points_lost += points
+                            formatted_issues[issue_desc] = f"-{points} points"
+                        
+                        total_points_lost += file_points_lost
+                        lab_feedback[filename] = formatted_issues
+                    else:
+                        lab_feedback[filename] = "correct"
+                
+                # Collect topics and summaries
+                topics = result.get('topics_lacking', [])
+                all_topics_lacking.update(topics)
+                
+                summary = result.get('summary', '')
+                if summary:
+                    all_summaries.append(summary)
             else:
                 lab_feedback[filename] = f"Error - {result.get('feedback', 'Unknown error')}"
 
-        # Create summarized feedback without using another LLM
-        overall_feedback = self._create_overall_feedback(lab_feedback, total_points_lost, len(codes))
+        # Create overall feedback from collected topics and summaries
+        overall_feedback = self._create_overall_feedback_from_topics(all_topics_lacking, all_summaries, total_points_lost, len(codes))
 
         return {
             'lab_feedback': lab_feedback,
@@ -313,3 +333,49 @@ class CodeEvaluator:
             "total_points_lost": total_points_lost,
             "total_evaluation_time_seconds": total_time,
         }
+
+    def _create_overall_feedback_from_topics(self, topics_lacking: set, summaries: list, total_points_lost: int, total_files: int) -> str:
+        """
+        Create overall feedback from topics lacking and summaries.
+        
+        Args:
+            topics_lacking: Set of programming topics student needs to improve
+            summaries: List of individual file summaries
+            total_points_lost: Total points lost
+            total_files: Total number of files evaluated
+            
+        Returns:
+            Overall feedback string focusing on programming topics
+        """
+        if not topics_lacking and total_points_lost == 0:
+            return "Student demonstrates excellent understanding of core programming concepts. All labs completed successfully!"
+        
+        if not topics_lacking:
+            topics_lacking = {"general programming concepts"}
+        
+        # Convert topics to readable format
+        topic_mapping = {
+            "array_handling": "array manipulation",
+            "loop_control": "loop implementation", 
+            "variable_scope": "variable usage",
+            "function_definition": "function creation",
+            "conditional_statements": "if/else logic",
+            "input_output": "input/output operations",
+            "basic_calculations": "mathematical operations"
+        }
+        
+        readable_topics = []
+        for topic in topics_lacking:
+            readable_topics.append(topic_mapping.get(topic, topic.replace('_', ' ')))
+        
+        if len(readable_topics) == 1:
+            topic_focus = readable_topics[0]
+        elif len(readable_topics) == 2:
+            topic_focus = f"{readable_topics[0]} and {readable_topics[1]}"
+        else:
+            topic_focus = f"{', '.join(readable_topics[:-1])}, and {readable_topics[-1]}"
+        
+        if total_points_lost == 0:
+            return f"Student shows good progress but could benefit from additional practice with {topic_focus}."
+        else:
+            return f"Student needs improvement in {topic_focus}. Total points lost: {total_points_lost}. Focus on mastering these core programming concepts."

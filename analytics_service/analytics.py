@@ -3,6 +3,7 @@ Analytics service for student and lab performance analysis.
 Uses simple aggregation and nano model for summaries.
 """
 
+import logging
 from datetime import datetime, timedelta
 from django.utils import timezone
 from django.db.models import Avg, Count, Sum
@@ -10,15 +11,18 @@ from typing import Dict, Any, List
 
 from evaluation.models import Student, Evaluation, EvaluationSession, LabRubric
 from analytics_service.models import StudentPerformance, LabAnalytics
+from analytics_service.vector_service import VectorService
 from evaluator_service.openai_service import openai_service
 from cache_utils import cache_api_response, cache_db_query, cache_llm_response
 
+logger = logging.getLogger(__name__)
 
 class AnalyticsService:
     """Simple analytics service for performance tracking"""
 
     def __init__(self):
         self.openai_service = openai_service
+        self.vector_service = VectorService()
 
     def get_student_details(self, student_id: str) -> Dict[str, Any]:
         """Get detailed student information with comprehensive performance summary"""
@@ -326,7 +330,6 @@ Respond with only the concept-based common issues.
         except Student.DoesNotExist:
             return {"error": "Student not found"}
 
-    @cache_llm_response(cache_alias="llm_cache", timeout=3600)
     def _analyze_student_trend(self, student_id: str, sessions) -> str:
         """Use nano model to analyze student's performance trend by programming concepts"""
         try:
@@ -339,12 +342,22 @@ Respond with only the concept-based common issues.
             if not recent_feedback:
                 return "No recent feedback available for trend analysis"
             
-            # Create simple prompt for nano model focused on programming concepts
+            # Get student-specific performance data
+            total_points_lost = sessions.aggregate(total=Sum('total_points_lost'))['total'] or 0
+            avg_points_lost = sessions.aggregate(avg=Avg('total_points_lost'))['avg'] or 0.0
+            total_sessions = sessions.count()
+            
+            # Create more specific prompt with student's actual performance data
             feedback_text = "\n".join(recent_feedback[:5])
             
             prompt = f"""
-Analyze this student's performance data and provide a 2-3 sentence summary focusing on CORE PROGRAMMING CONCEPTS (not specific lab topics):
+Analyze this specific student's performance data and provide a 2-3 sentence summary focusing on CORE PROGRAMMING CONCEPTS:
 
+Student Performance Data:
+- Total sessions: {total_sessions}
+- Total points lost: {total_points_lost}
+- Average points lost per session: {avg_points_lost:.2f}
+- Recent feedback:
 {feedback_text}
 
 Focus on programming concepts like:
@@ -358,8 +371,63 @@ Focus on programming concepts like:
 - Error handling
 - Code structure/Formatting
 
+Based on this student's SPECIFIC performance data (points lost, feedback patterns), identify which programming concepts they struggle with most.
+
 DO NOT mention specific lab topics like "GPA calculations" or "time calculations".
 Instead say "student is comfortable with arrays" or "struggles with loops".
+
+Respond with only the concept-based analysis specific to this student's data.
+"""
+            
+            response = self.openai_service.create_chat_completion([
+                {"role": "system", "content": "You are an educational analyst. Focus on core programming concepts, not specific lab topics. Be concise and concept-focused. Each student's analysis should be unique based on their specific performance data."},
+                {"role": "user", "content": prompt}
+            ])
+            
+            return response if response else "Performance trend analysis not available"
+            
+        except Exception as e:
+            return "Performance trend analysis not available"
+
+    @cache_llm_response(cache_alias="llm_cache", timeout=10)
+    def _get_performance_summary_with_limit(self, sessions, context: str) -> str:
+        """Get performance summary with token limit check (400 tokens total)"""
+        try:
+            # Get recent feedback for analysis
+            recent_feedback = []
+            for session in sessions.order_by('-created_at')[:20]:  # Limit to 20 recent sessions
+                if session.summary_feedback:
+                    recent_feedback.append(session.summary_feedback)
+            
+            if not recent_feedback:
+                return "No feedback data available"
+            
+            # Check token length before processing
+            feedback_text = "\n".join(recent_feedback[:5])  # Limit to 5 feedback items
+            estimated_tokens = len(feedback_text.split()) * 1.3  # Rough token estimation
+            
+            if estimated_tokens > 300:  # Leave room for prompt (400 - 100 for prompt)
+                return "MAX_LIMIT_EXCEEDED: Too much data to analyze. Please use more specific filters."
+            
+            # Create simple prompt for nano model
+            prompt = f"""
+Analyze these student feedback items for {context} and identify the most common PROGRAMMING CONCEPT issues in 2-3 sentences:
+
+{feedback_text}
+
+Focus on core programming concepts:
+- Arrays/Lists handling
+- Loops (for, while)
+- Dictionaries/Objects
+- Functions/Methods
+- Variables/Data types
+- Input/Output handling
+- Calculations/Logic
+- Error handling
+- Code structure/Formatting
+
+DO NOT mention specific lab topics like "GPA calculations" or "time calculations".
+Instead say "students struggle with loops" or "good understanding of arrays".
 
 Respond with only the concept-based analysis.
 """
@@ -369,10 +437,10 @@ Respond with only the concept-based analysis.
                 {"role": "user", "content": prompt}
             ])
             
-            return response if response else "Performance trend analysis not available"
+            return response if response else "Analysis not available"
             
         except Exception as e:
-            return "Performance trend analysis not available"
+            return "Analysis not available"
 
     def get_summarized_performance_by_lab(self, lab_name: str, section: str = None, semester: str = None) -> Dict[str, Any]:
         """Get summarized performance for a specific lab with optional filters"""
@@ -536,59 +604,6 @@ Respond with only the concept-based analysis.
         except Exception as e:
             return {"error": f"Failed to analyze semester performance: {str(e)}"}
 
-    @cache_llm_response(cache_alias="llm_cache", timeout=3600)
-    def _get_performance_summary_with_limit(self, sessions, context: str) -> str:
-        """Get performance summary with token limit check (400 tokens total)"""
-        try:
-            # Get recent feedback for analysis
-            recent_feedback = []
-            for session in sessions.order_by('-created_at')[:20]:  # Limit to 20 recent sessions
-                if session.summary_feedback:
-                    recent_feedback.append(session.summary_feedback)
-            
-            if not recent_feedback:
-                return "No feedback data available"
-            
-            # Check token length before processing
-            feedback_text = "\n".join(recent_feedback[:5])  # Limit to 5 feedback items
-            estimated_tokens = len(feedback_text.split()) * 1.3  # Rough token estimation
-            
-            if estimated_tokens > 300:  # Leave room for prompt (400 - 100 for prompt)
-                return "MAX_LIMIT_EXCEEDED: Too much data to analyze. Please use more specific filters."
-            
-            # Create simple prompt for nano model
-            prompt = f"""
-Analyze these student feedback items for {context} and identify the most common PROGRAMMING CONCEPT issues in 2-3 sentences:
-
-{feedback_text}
-
-Focus on core programming concepts:
-- Arrays/Lists handling
-- Loops (for, while)
-- Dictionaries/Objects
-- Functions/Methods
-- Variables/Data types
-- Input/Output handling
-- Calculations/Logic
-- Error handling
-- Code structure/Formatting
-
-DO NOT mention specific lab topics like "GPA calculations" or "time calculations".
-Instead say "students struggle with loops" or "good understanding of arrays".
-
-Respond with only the concept-based analysis.
-"""
-            
-            response = self.openai_service.create_chat_completion([
-                {"role": "system", "content": "You are an educational analyst. Focus on core programming concepts, not specific lab topics. Be concise and concept-focused."},
-                {"role": "user", "content": prompt}
-            ])
-            
-            return response if response else "Analysis not available"
-            
-        except Exception as e:
-            return "Analysis not available"
-
     def get_all_labs(self) -> List[Dict[str, Any]]:
         """Get all labs with basic information"""
         try:
@@ -677,4 +692,116 @@ Respond with only the concept-based analysis.
         except LabRubric.DoesNotExist:
             return {"error": "Lab not found"}
         except Exception as e:
-            return {"error": f"Failed to get lab details: {str(e)}"} 
+            return {"error": f"Failed to get lab details: {str(e)}"}
+
+    def _generate_student_suggestions(self, student: Student, sessions, performance_summary: str) -> Dict[str, Any]:
+        """Generate personalized suggestions for an individual student"""
+        try:
+            if not self.vector_service.is_available():
+                return {
+                    "error": "Vector database not available",
+                    "message": "Course materials database is not accessible"
+                }
+
+            # ==========================
+            # ⚡️ Stage 1: Get plain text topics
+            # ==========================
+            stage1_prompt = f"""
+You are a programming instructor analyzing a student's performance.
+
+Student: {student.name}
+Performance: {performance_summary}
+
+Based on this performance, list 3 programming topics this student needs help with.
+
+IMPORTANT:
+- Return ONLY plain text lines (one topic per line).
+- Do NOT return JSON.
+Example output:
+array iteration
+function design
+error handling
+"""
+            stage1_response = self.openai_service.create_chat_completion([
+                {"role": "system", "content": "You are a programming instructor. Return only plain text lines (one topic per line). No JSON or extra text."},
+                {"role": "user", "content": stage1_prompt}
+            ])
+
+            if not stage1_response:
+                return {
+                    "error": "Failed to analyze performance",
+                    "message": "Could not identify relevant topics"
+                }
+
+            # Extract plain text topics
+            topics = [line.strip() for line in stage1_response.strip().split('\n') if line.strip()]
+            
+            if len(topics) < 3:
+                topics = ["programming fundamentals", "code structure", "error handling"]
+
+            # ==========================
+            # ⚡️ Stage 2: Get relevant course materials
+            # ==========================
+            processed_materials = self.vector_service.get_materials_by_topics(topics)
+
+            # ==========================
+            # ⚡️ Stage 3: Generate personalized suggestions
+            # ==========================
+            materials_text = self._format_materials_for_prompt(processed_materials)
+            
+            stage3_prompt = f"""
+You are a helpful programming instructor. Generate personalized suggestions for a student.
+
+Student: {student.name}
+Performance Issues: {performance_summary}
+Relevant Course Materials: {materials_text}
+
+Generate 3 specific suggestions in this format:
+[topic]: [filename]
+
+Example:
+array iteration: arrays-tutorial.pdf
+function design: functions-guide.pdf
+error handling: debugging-basics.pdf
+
+Return ONLY the suggestions in the format above. No extra text.
+"""
+            stage3_response = self.openai_service.create_chat_completion([
+                {"role": "system", "content": "You are a programming instructor. Return only suggestions in the format '[topic]: [filename]'. No extra text."},
+                {"role": "user", "content": stage3_prompt}
+            ])
+
+            if not stage3_response:
+                return {
+                    "error": "Failed to generate suggestions",
+                    "message": "Could not create personalized recommendations"
+                }
+
+            # Extract suggestions block
+            suggestions_block = stage3_response.strip()
+
+            return {
+                "student_name": student.name,
+                "topics_identified": topics,
+                "materials_found": len(processed_materials),
+                "suggestions": suggestions_block,
+                "generated_at": timezone.now().isoformat()
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating student suggestions: {str(e)}")
+            return {
+                "error": "Failed to generate suggestions",
+                "message": str(e)
+            }
+
+    def _format_materials_for_prompt(self, processed_materials: Dict[str, List[Dict[str, Any]]]) -> str:
+        """Format materials for LLM prompt"""
+        formatted = []
+        for topic, materials in processed_materials.items():
+            formatted.append(f"Topic: {topic}")
+            for i, material in enumerate(materials, 1):
+                formatted.append(f"  {i}. {material['file']} (score: {material['relevance_score']:.3f})")
+                formatted.append(f"     Preview: {material['text'][:200]}...")
+            formatted.append("")
+        return "\n".join(formatted) 

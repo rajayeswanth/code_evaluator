@@ -26,7 +26,7 @@ metrics_monitor = MetricsMonitor()
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_cost_analysis(request):
     """Get cost analysis for the last N days"""
     try:
@@ -45,7 +45,7 @@ def get_cost_analysis(request):
         start_date = end_date - timedelta(days=days)
         
         # Get cost metrics
-        metrics = RequestMetrics.objects.filter(created_at__range=(start_date, end_date))
+        metrics = RequestMetrics.objects.filter(timestamp__range=(start_date, end_date))
         
         if not metrics.exists():
             return Response({
@@ -62,16 +62,16 @@ def get_cost_analysis(request):
             })
         
         # Calculate totals
-        total_cost = metrics.aggregate(total=Sum('total_cost'))['total'] or 0.0
+        total_cost = metrics.aggregate(total=Sum('estimated_cost_usd'))['total'] or 0.0
         total_requests = metrics.count()
         avg_cost_per_request = total_cost / total_requests if total_requests > 0 else 0.0
         avg_cost_per_day = total_cost / days
         
         # Get daily breakdown
         daily_costs = metrics.extra(
-            select={'date': 'DATE(created_at)'}
+            select={'date': 'DATE(timestamp)'}
         ).values('date').annotate(
-            daily_cost=Sum('total_cost'),
+            daily_cost=Sum('estimated_cost_usd'),
             daily_requests=Count('id')
         ).order_by('date')
         
@@ -107,7 +107,7 @@ def get_cost_analysis(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_request_metrics(request):
     """Get request metrics with pagination"""
     try:
@@ -116,7 +116,7 @@ def get_request_metrics(request):
         page_size = min(int(request.GET.get('page_size', 20)), 100)
         
         # Get metrics
-        metrics = RequestMetrics.objects.all().order_by('-created_at')
+        metrics = RequestMetrics.objects.all().order_by('-timestamp')
         
         # Paginate
         paginator = Paginator(metrics, page_size)
@@ -127,18 +127,17 @@ def get_request_metrics(request):
         for metric in page_obj:
             metrics_data.append({
                 'id': metric.id,
-                'session_id': metric.session_id,
-                'llm_calls': metric.llm_calls,
-                'total_tokens': metric.total_tokens,
+                'llm_calls': metric.llm_calls_count,
+                'total_tokens': metric.tokens_used,
                 'input_tokens': metric.input_tokens,
                 'output_tokens': metric.output_tokens,
                 'avg_tokens_per_call': metric.avg_tokens_per_call,
-                'total_cost': float(metric.total_cost),
-                'avg_cost_per_call': float(metric.avg_cost_per_call),
-                'processing_time_ms': metric.processing_time_ms,
+                'total_cost': float(metric.estimated_cost_usd),
+                'avg_cost_per_call': float(metric.estimated_cost_usd / metric.llm_calls_count) if metric.llm_calls_count > 0 else 0.0,
+                'processing_time_ms': metric.response_time_ms,
                 'memory_usage_mb': metric.memory_usage_mb,
-                'status': metric.status,
-                'created_at': metric.created_at.isoformat()
+                'status': metric.status_code,
+                'created_at': metric.timestamp.isoformat()
             })
         
         return Response({
@@ -170,7 +169,7 @@ def get_request_metrics(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_performance_summary(request):
     """Get overall performance summary"""
     try:
@@ -179,7 +178,7 @@ def get_performance_summary(request):
         start_date = end_date - timedelta(days=30)
         
         # Get metrics for the period
-        metrics = RequestMetrics.objects.filter(created_at__range=(start_date, end_date))
+        metrics = RequestMetrics.objects.filter(timestamp__range=(start_date, end_date))
         
         if not metrics.exists():
             return Response({
@@ -200,19 +199,19 @@ def get_performance_summary(request):
                 }
             })
         
-        # Calculate statistics
+        # Calculate metrics
         total_requests = metrics.count()
-        successful_requests = metrics.filter(status='success').count()
+        successful_requests = metrics.filter(status_code__lt=400).count()
         failed_requests = total_requests - successful_requests
         success_rate = (successful_requests / total_requests * 100) if total_requests > 0 else 0
         
-        total_tokens = metrics.aggregate(total=Sum('total_tokens'))['total'] or 0
-        avg_tokens_per_request = metrics.aggregate(avg=Avg('total_tokens'))['avg'] or 0
+        total_tokens = metrics.aggregate(total=Sum('tokens_used'))['total'] or 0
+        avg_tokens_per_request = metrics.aggregate(avg=Avg('tokens_used'))['avg'] or 0
         
-        total_cost = metrics.aggregate(total=Sum('total_cost'))['total'] or 0.0
-        avg_cost_per_request = metrics.aggregate(avg=Avg('total_cost'))['avg'] or 0.0
+        total_cost = metrics.aggregate(total=Sum('estimated_cost_usd'))['total'] or 0.0
+        avg_cost_per_request = metrics.aggregate(avg=Avg('estimated_cost_usd'))['avg'] or 0.0
         
-        avg_processing_time = metrics.aggregate(avg=Avg('processing_time_ms'))['avg'] or 0
+        avg_processing_time = metrics.aggregate(avg=Avg('response_time_ms'))['avg'] or 0
         avg_memory_usage = metrics.aggregate(avg=Avg('memory_usage_mb'))['avg'] or 0
         
         return Response({
@@ -244,7 +243,7 @@ def get_performance_summary(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_token_usage(request):
     """Get token usage analysis"""
     try:
@@ -263,7 +262,7 @@ def get_token_usage(request):
         start_date = end_date - timedelta(days=days)
         
         # Get token metrics
-        metrics = RequestMetrics.objects.filter(created_at__range=(start_date, end_date))
+        metrics = RequestMetrics.objects.filter(timestamp__range=(start_date, end_date))
         
         if not metrics.exists():
             return Response({
@@ -272,24 +271,20 @@ def get_token_usage(request):
                 'data': {
                     'period_days': days,
                     'total_tokens': 0,
-                    'input_tokens': 0,
-                    'output_tokens': 0,
                     'average_tokens_per_request': 0,
                     'token_breakdown': []
                 }
             })
         
         # Calculate totals
-        total_tokens = metrics.aggregate(total=Sum('total_tokens'))['total'] or 0
-        input_tokens = metrics.aggregate(total=Sum('input_tokens'))['total'] or 0
-        output_tokens = metrics.aggregate(total=Sum('output_tokens'))['total'] or 0
-        avg_tokens_per_request = metrics.aggregate(avg=Avg('total_tokens'))['avg'] or 0
+        total_tokens = metrics.aggregate(total=Sum('tokens_used'))['total'] or 0
+        avg_tokens_per_request = metrics.aggregate(avg=Avg('tokens_used'))['avg'] or 0
         
         # Get daily breakdown
         daily_tokens = metrics.extra(
-            select={'date': 'DATE(created_at)'}
+            select={'date': 'DATE(timestamp)'}
         ).values('date').annotate(
-            daily_tokens=Sum('total_tokens'),
+            daily_tokens=Sum('tokens_used'),
             daily_requests=Count('id')
         ).order_by('date')
         
@@ -307,8 +302,6 @@ def get_token_usage(request):
             'data': {
                 'period_days': days,
                 'total_tokens': total_tokens,
-                'input_tokens': input_tokens,
-                'output_tokens': output_tokens,
                 'average_tokens_per_request': round(avg_tokens_per_request, 2),
                 'token_breakdown': token_breakdown
             }
@@ -325,7 +318,7 @@ def get_token_usage(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_cache_status(request):
     """Get cache status and statistics"""
     try:
@@ -432,7 +425,7 @@ def update_daily_metrics(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_metrics_summary(request):
     """Get quick metrics summary for dashboard"""
     try:
