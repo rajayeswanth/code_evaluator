@@ -726,12 +726,8 @@ error handling
                 {"role": "system", "content": "You are a programming instructor. Return only plain text lines (one topic per line). No JSON or extra text."},
                 {"role": "user", "content": stage1_prompt}
             ])
-            print("\n[DEBUG] Raw LLM topics response:", stage1_response)
-            print("[DEBUG] Response type:", type(stage1_response))
-            print("[DEBUG] Response length:", len(str(stage1_response)) if stage1_response else 0)
 
             if not stage1_response:
-                print("[DEBUG] LLM response is empty")
                 return {
                     "error": "Failed to analyze performance",
                     "message": "Could not identify relevant topics"
@@ -739,73 +735,50 @@ error handling
 
             # Extract plain text topics
             topics = [line.strip() for line in stage1_response.strip().split('\n') if line.strip()]
-            print("[DEBUG] Extracted topics:", topics)
-            print("[DEBUG] Number of topics found:", len(topics))
             
             if len(topics) < 3:
-                print("[DEBUG] Not enough topics, using fallback")
                 topics = ["programming fundamentals", "code structure", "error handling"]
-
-            print("[DEBUG] Final topics (group):", topics)
 
             # ==========================
             # ⚡️ Stage 2: Get relevant course materials
             # ==========================
-            materials = self.vector_service.get_materials_by_topics(topics, top_k_per_topic=2)
-
-            processed_materials = {}
-            for topic, topic_materials in materials.items():
-                sorted_materials = sorted(topic_materials, key=lambda x: x['relevance_score'], reverse=True)[:3]
-                processed_materials[topic] = []
-                for material in sorted_materials:
-                    sentences = material['text'].split('.')[:2]
-                    truncated_text = '. '.join(sentences) + '.' if sentences else material['text'][:100]
-
-                    processed_materials[topic].append({
-                        'file': material['file'],
-                        'text': truncated_text,
-                        'relevance_score': material['relevance_score']
-                    })
-
-            print("[DEBUG] Processed FAISS materials (group, top 3 per topic):", processed_materials)
+            processed_materials = self.vector_service.get_materials_by_topics(topics)
 
             # ==========================
-            # ⚡️ Stage 3: Let LLM pick best files for suggestions
+            # ⚡️ Stage 3: Generate personalized suggestions
             # ==========================
+            materials_text = self._format_materials_for_prompt(processed_materials)
+            
             stage3_prompt = f"""
-You are a programming instructor creating suggestions for {student.name}.
+You are a helpful programming instructor. Generate personalized suggestions for a student.
 
 Student: {student.name}
-Topics: {', '.join(topics)}
+Performance Issues: {performance_summary}
+Relevant Course Materials: {materials_text}
 
-Available materials:
-{self._format_materials_for_prompt(processed_materials)}
+Generate 3 specific suggestions in this format:
+[topic]: [filename]
 
-Return EXACTLY 3 lines, one for each topic:
-Format:
-[Topic]: [Best Material Filename]
+Example:
+array iteration: arrays-tutorial.pdf
+function design: functions-guide.pdf
+error handling: debugging-basics.pdf
+
+Return ONLY the suggestions in the format above. No extra text.
 """
             stage3_response = self.openai_service.create_chat_completion([
-                {"role": "system", "content": "You are a programming instructor. Return EXACTLY 3 lines with the best material filenames for the topics. No extra text, no JSON."},
+                {"role": "system", "content": "You are a programming instructor. Return only suggestions in the format '[topic]: [filename]'. No extra text."},
                 {"role": "user", "content": stage3_prompt}
             ])
 
-            print("\n[DEBUG] Raw LLM suggestions response:", stage3_response)
-
-            # Parse the filenames
-            suggestions_block = ""
-            if stage3_response:
-                suggestions_block = stage3_response.strip()
-            else:
-                suggestions_block = ""
-
-            print("[DEBUG] Final Suggestions Block:", suggestions_block)
-
-            if not suggestions_block or any(line.find(":") == -1 for line in suggestions_block.split('\n')):
+            if not stage3_response:
                 return {
                     "error": "Failed to generate suggestions",
-                    "message": "Could not create improvement suggestions"
+                    "message": "Could not create personalized recommendations"
                 }
+
+            # Extract suggestions block
+            suggestions_block = stage3_response.strip()
 
             return {
                 "student_name": student.name,
