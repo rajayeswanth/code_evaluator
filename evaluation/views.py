@@ -47,8 +47,8 @@ metrics_monitor = MetricsMonitor()
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='10/m', method='POST', block=True)  # 10 evaluations per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@ratelimit(key='ip', rate='30/m', method='POST', block=True)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def create_rubric(request):
     """Create a new rubric for a lab"""
     start_time = time.time()
@@ -96,7 +96,7 @@ def create_rubric(request):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='10/m', method='POST', block=True)  # 10 evaluations per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_rubric_id(request):
     """Get rubric ID by lab details"""
     start_time = time.time()
@@ -145,8 +145,8 @@ def get_rubric_id(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='10/m', method='POST', block=True)  # 10 evaluations per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@ratelimit(key='ip', rate='30/m', method='POST', block=True)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def evaluate_submission(request):
     """Evaluate student code submission"""
     start_time = time.time()
@@ -358,8 +358,8 @@ def evaluate_submission(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_rubrics(request):
     """Get all rubrics with pagination"""
     start_time = time.time()
@@ -418,7 +418,7 @@ def get_rubrics(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='120/m', method='GET', block=True)  # 120 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def health_check(request):
     """Simple health check"""
     start_time = time.time()
@@ -431,8 +431,8 @@ def health_check(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_all_evaluations(request):
     """Get all evaluations with pagination"""
     try:
@@ -483,8 +483,8 @@ def get_all_evaluations(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_evaluation_by_id(request, evaluation_id):
     """Get a single evaluation by its ID"""
     try:
@@ -511,8 +511,8 @@ def get_evaluation_by_id(request, evaluation_id):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_llm_metrics_by_evaluation(request, evaluation_id):
     """Get detailed LLM metrics for a specific evaluation"""
     try:
@@ -621,8 +621,8 @@ def get_llm_metrics_by_evaluation(request, evaluation_id):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_stats(request):
     """Get evaluation statistics for the last N days"""
     try:
@@ -681,8 +681,8 @@ def get_stats(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_performance(request, student_id):
     """Get performance statistics for a specific student"""
     try:
@@ -745,7 +745,7 @@ def get_performance(request, student_id):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='120/m', method='GET', block=True)  # 120 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def health_check(request):
     """Check system health and status"""
     try:
@@ -792,15 +792,15 @@ def health_check(request):
 # Legacy endpoint for backward compatibility
 @api_view(['POST'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='10/m', method='POST', block=True)  # 10 evaluations per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@ratelimit(key='ip', rate='30/m', method='POST', block=True)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def legacy_evaluate(request):
     """Legacy evaluation endpoint for backward compatibility"""
     return evaluate_submission(request)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-@ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@ratelimit(key='ip', rate='60/m', method='GET', block=True)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def test_cache(request):
     return Response({"value": random.randint(1, 1000000)})

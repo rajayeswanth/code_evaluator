@@ -26,7 +26,7 @@ metrics_monitor = MetricsMonitor()
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_cost_analysis(request):
     """Get cost analysis for the last N days"""
     try:
@@ -107,7 +107,7 @@ def get_cost_analysis(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_request_metrics(request):
     """Get request metrics with pagination"""
     try:
@@ -170,7 +170,7 @@ def get_request_metrics(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_performance_summary(request):
     """Get overall performance summary"""
     try:
@@ -244,7 +244,7 @@ def get_performance_summary(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_token_usage(request):
     """Get token usage analysis"""
     try:
@@ -325,7 +325,7 @@ def get_token_usage(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_cache_status(request):
     """Get cache status and statistics"""
     try:
@@ -432,7 +432,7 @@ def update_daily_metrics(request):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 @ratelimit(key='ip', rate='60/m', method='GET', block=True)  # 60 requests per minute per IP
-@cache_api_response(cache_alias="api_cache", timeout=7200)
+@cache_api_response(cache_alias="api_cache", timeout=60)
 def get_metrics_summary(request):
     """Get quick metrics summary for dashboard"""
     try:

@@ -389,6 +389,59 @@ Respond with only the concept-based analysis specific to this student's data.
         except Exception as e:
             return "Performance trend analysis not available"
 
+    @cache_llm_response(cache_alias="llm_cache", timeout=10)
+    def _get_performance_summary_with_limit(self, sessions, context: str) -> str:
+        """Get performance summary with token limit check (400 tokens total)"""
+        try:
+            # Get recent feedback for analysis
+            recent_feedback = []
+            for session in sessions.order_by('-created_at')[:20]:  # Limit to 20 recent sessions
+                if session.summary_feedback:
+                    recent_feedback.append(session.summary_feedback)
+            
+            if not recent_feedback:
+                return "No feedback data available"
+            
+            # Check token length before processing
+            feedback_text = "\n".join(recent_feedback[:5])  # Limit to 5 feedback items
+            estimated_tokens = len(feedback_text.split()) * 1.3  # Rough token estimation
+            
+            if estimated_tokens > 300:  # Leave room for prompt (400 - 100 for prompt)
+                return "MAX_LIMIT_EXCEEDED: Too much data to analyze. Please use more specific filters."
+            
+            # Create simple prompt for nano model
+            prompt = f"""
+Analyze these student feedback items for {context} and identify the most common PROGRAMMING CONCEPT issues in 2-3 sentences:
+
+{feedback_text}
+
+Focus on core programming concepts:
+- Arrays/Lists handling
+- Loops (for, while)
+- Dictionaries/Objects
+- Functions/Methods
+- Variables/Data types
+- Input/Output handling
+- Calculations/Logic
+- Error handling
+- Code structure/Formatting
+
+DO NOT mention specific lab topics like "GPA calculations" or "time calculations".
+Instead say "students struggle with loops" or "good understanding of arrays".
+
+Respond with only the concept-based analysis.
+"""
+            
+            response = self.openai_service.create_chat_completion([
+                {"role": "system", "content": "You are an educational analyst. Focus on core programming concepts, not specific lab topics. Be concise and concept-focused."},
+                {"role": "user", "content": prompt}
+            ])
+            
+            return response if response else "Analysis not available"
+            
+        except Exception as e:
+            return "Analysis not available"
+
     def get_summarized_performance_by_lab(self, lab_name: str, section: str = None, semester: str = None) -> Dict[str, Any]:
         """Get summarized performance for a specific lab with optional filters"""
         try:
@@ -550,59 +603,6 @@ Respond with only the concept-based analysis specific to this student's data.
             
         except Exception as e:
             return {"error": f"Failed to analyze semester performance: {str(e)}"}
-
-    @cache_llm_response(cache_alias="llm_cache", timeout=3600)
-    def _get_performance_summary_with_limit(self, sessions, context: str) -> str:
-        """Get performance summary with token limit check (400 tokens total)"""
-        try:
-            # Get recent feedback for analysis
-            recent_feedback = []
-            for session in sessions.order_by('-created_at')[:20]:  # Limit to 20 recent sessions
-                if session.summary_feedback:
-                    recent_feedback.append(session.summary_feedback)
-            
-            if not recent_feedback:
-                return "No feedback data available"
-            
-            # Check token length before processing
-            feedback_text = "\n".join(recent_feedback[:5])  # Limit to 5 feedback items
-            estimated_tokens = len(feedback_text.split()) * 1.3  # Rough token estimation
-            
-            if estimated_tokens > 300:  # Leave room for prompt (400 - 100 for prompt)
-                return "MAX_LIMIT_EXCEEDED: Too much data to analyze. Please use more specific filters."
-            
-            # Create simple prompt for nano model
-            prompt = f"""
-Analyze these student feedback items for {context} and identify the most common PROGRAMMING CONCEPT issues in 2-3 sentences:
-
-{feedback_text}
-
-Focus on core programming concepts:
-- Arrays/Lists handling
-- Loops (for, while)
-- Dictionaries/Objects
-- Functions/Methods
-- Variables/Data types
-- Input/Output handling
-- Calculations/Logic
-- Error handling
-- Code structure/Formatting
-
-DO NOT mention specific lab topics like "GPA calculations" or "time calculations".
-Instead say "students struggle with loops" or "good understanding of arrays".
-
-Respond with only the concept-based analysis.
-"""
-            
-            response = self.openai_service.create_chat_completion([
-                {"role": "system", "content": "You are an educational analyst. Focus on core programming concepts, not specific lab topics. Be concise and concept-focused."},
-                {"role": "user", "content": prompt}
-            ])
-            
-            return response if response else "Analysis not available"
-            
-        except Exception as e:
-            return "Analysis not available"
 
     def get_all_labs(self) -> List[Dict[str, Any]]:
         """Get all labs with basic information"""
